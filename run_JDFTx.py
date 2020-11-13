@@ -3,7 +3,7 @@
 """
 
 
-@author: zaba1157
+@author: zaba1157, nicksingstock
 """
 
 from JDFTx import JDFTx
