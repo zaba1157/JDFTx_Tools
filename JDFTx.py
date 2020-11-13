@@ -6,7 +6,7 @@
 
 """
 Modified:
-    @author: zaba1157, nicksingstock
+    @author: zaba1157
 
 """
 
