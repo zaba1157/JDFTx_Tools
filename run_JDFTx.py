@@ -233,7 +233,8 @@ def initialize_calc(command_file, jdftx_exe):
 
 if __name__ == '__main__':
 
-    jdftx_exe = '/home/jacl0659/jdftx-aziz/jdftx/build/jdftx'
+    #jdftx_exe = '/home/jacl0659/jdftx-aziz/jdftx/build/jdftx'
+    jdftx_exe = os.environ('JDFTx')
 
     command_file = 'inputs'
     initialize_calc(command_file, jdftx_exe)

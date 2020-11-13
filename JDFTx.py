@@ -4,9 +4,15 @@
 # See http://jdftx.org for JDFTx and https://wiki.fysik.dtu.dk/ase/ for ASE
 # Authors: Deniz Gunceler, Ravishankar Sundararaman
 
+"""
+Modified:
+    @author: zaba1157, nicksingstock
+
+"""
+
 from __future__ import print_function #For Python2 compatibility
 
-import os, scipy, subprocess, tempfile, re
+import os, scipy, subprocess, re #,tempfile
 from ase.calculators.interface import Calculator
 from ase.units import Bohr, Hartree
 
@@ -31,7 +37,6 @@ class JDFTx(Calculator):
                         'GBRV-pbe' : 'GBRV/$ID_pbe.uspp',
                         'GBRV-lda' : 'GBRV/$ID_lda.uspp',
                         'GBRV-pbesol' : 'GBRV/$ID_pbesol.uspp',
-                        'kjpaw': 'kjpaw/$ID_pbe-n-kjpaw_psl.1.0.0.upf',
                 }
 
                 #Get default values from environment:
