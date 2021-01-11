@@ -22,6 +22,7 @@ def write(nodes,cores,time,out,alloc,script):
     if time == 1:
         writelines+='#SBATCH --partition=debug\n'
     writelines+='export JDFTx_NUM_PROCS='+str(np)+'\n'
+    writelines+='module load comp-intel/2020.1.217 intel-mpi/2020.1.217 cuda/10.2.89 vasp/6.1.1 mkl/2020.1.217 gsl/2.5/gcc openmpi/4.0.4/gcc-8.4.0 gcc/7.4.0'+'\n\n'
     writelines+='python '+script+' > '+out+'\n'
     writelines+='exit 0'+'\n'
 
@@ -30,8 +31,8 @@ def write(nodes,cores,time,out,alloc,script):
 
 
 if __name__ == '__main__':
-    
-    script = '/home/zaba1157/jdftx_scripts/run_JDFTx.py'
+
+    script = '/home/nicksingstock/bin/jdft/run_JDFTx.py'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--nodes', help='Number of nodes',
@@ -46,7 +47,7 @@ if __name__ == '__main__':
                         type=str,default='custws')
     #parser.add_argument('-s', '--script', help='Python script to submit.',
     #                    type=str, required=True)
-    
+
     args = parser.parse_args()
 
     write(args.nodes,args.cores,args.time,args.outfile,args.allocation,
