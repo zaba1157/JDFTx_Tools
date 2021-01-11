@@ -18,8 +18,6 @@ ope = os.path.exists
 
 
 
-
-
 def insert_el(filename):
     """
     Inserts elements line in correct position for Vasp 5? Good for
@@ -55,7 +53,7 @@ def initialize_calc(command_file, jdftx_exe):
                   'density-of-states','coulomb-interaction',
                   'coords-type','ion',
 
-                  'logfile','pseudos','nimages','max_steps','fmax','optimizer']
+                  'logfile','pseudos','nimages','max_steps','fmax','optimizer','restart']
 
     def read_commands(command_file,notinclude):
         cmds = {}
@@ -97,10 +95,13 @@ def initialize_calc(command_file, jdftx_exe):
     psuedos = script_cmds['pseudos']
     max_steps = int(script_cmds['max_steps'])
     fmax = float(script_cmds['fmax'])
+    restart = True if ('restart' in script_cmds and script_cmds['restart'] == 'True') else False
 
     if ctype == 'opt':
-        
-        atoms = read('POSCAR',format='vasp')
+        if restart:
+            atoms = read('CONTCAR',format='vasp')
+        else:
+            atoms = read('POSCAR',format='vasp')
         jdftx_num_procs = os.environ['JDFTx_NUM_PROCS']
         exe_cmd = 'mpirun -np '+str(jdftx_num_procs)+' '+jdftx_exe
 
@@ -160,19 +161,23 @@ def initialize_calc(command_file, jdftx_exe):
 
     elif ctype == 'neb':
 
-        jdftx_num_procs = 1
+        #jdftx_num_procs = 36 #1
+        jdftx_num_procs = os.environ['JDFTx_NUM_PROCS']
         exe_cmd = 'mpirun -np '+str(jdftx_num_procs)+' '+jdftx_exe
 
         nimages = int(script_cmds['nimages'])
         image_dirs = [str(i).zfill(2) for i in range(0,nimages+2)]
-        initial = read('00/opt.traj')
-        final = read(opj(str(nimages+1).zfill(2),'opt.traj'))
+        initial = read('00/POSCAR')
+        final = read(opj(str(nimages+1).zfill(2),'POSCAR'))
         images = [initial]
-        images += [read(opj(i,'POSCAR')) for i in image_dirs[1:-1]]
+        if restart:
+            images += [read(opj(i,'CONTCAR')) for i in image_dirs[1:-1]]
+        else:
+            images += [read(opj(i,'POSCAR')) for i in image_dirs[1:-1]]
         images += [final]
         #images = [read(opj(i,'POSCAR')) for i in image_dirs ]
 
-        neb = NEB(images, parallel=True)
+        neb = NEB(images, parallel=False)
         for i, image in enumerate(images[1:-1]):
             #if i == j:
             image.calc = JDFTx(
@@ -233,8 +238,8 @@ def initialize_calc(command_file, jdftx_exe):
 
 if __name__ == '__main__':
 
-    #jdftx_exe = '/home/jacl0659/jdftx-aziz/jdftx/build/jdftx'
-    jdftx_exe = os.environ('JDFTx')
+    #jdftx_exe = '/home/nicksingstock/jdftx/build/jdftx'
+    jdftx_exe = os.environ['JDFTx']
 
     command_file = 'inputs'
     initialize_calc(command_file, jdftx_exe)
