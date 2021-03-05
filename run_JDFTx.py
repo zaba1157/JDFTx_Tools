@@ -63,7 +63,7 @@ def initialize_calc(command_file, jdftx_exe):
                   'logfile','pseudos','nimages','max_steps','fmax','optimizer','restart','parallel']
 
     def read_commands(command_file,notinclude):
-        cmds = {}
+        cmds = []
         script_cmds = {}
         with open(command_file,'r') as f:
             for line in f.readlines():
@@ -75,11 +75,13 @@ def initialize_calc(command_file, jdftx_exe):
                         script_cmds[linelist[0]] = ' '.join(linelist[1:])
                 else:
                     if len(linelist) > 1:
-                        cmds[linelist[0]] = ' '.join(linelist[1:])
+                        tpl = (linelist[0], ' '.join(linelist[1:]))
+                        cmds.append(tpl)
 
         """ Defaults """
 
-        cmds['core-overlap-check']  = 'none'
+        #cmds['core-overlap-check']  = 'none'
+        cmds += [('core-overlap-check', 'none')]
 
         return cmds, script_cmds
 
