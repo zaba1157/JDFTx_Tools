@@ -8,6 +8,7 @@ Created on Fri Nov  6 20:43:05 2020
 import argparse
 import os
 
+opj = os.path.join
 
 def write(nodes,cores,time,out,alloc,qos,script):
     np=nodes*cores
@@ -41,7 +42,9 @@ def write(nodes,cores,time,out,alloc,qos,script):
 
 if __name__ == '__main__':
     
-    script = './run_JDFTx.py'
+    jdftx_tools_module_dir = os.environ('JDFTx_Tools_dir')
+    
+    script = opj(jdftx_tools_module_dir,'run_JDFTx.py')
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--nodes', help='Number of nodes',
@@ -56,9 +59,6 @@ if __name__ == '__main__':
                         type=str,default='environ')
     parser.add_argument('-q', '--qos', help='Priority / QOS (e.g. high)',
                         type=str,default='standard')
-
-    #parser.add_argument('-s', '--script', help='Python script to submit.',
-    #                    type=str, required=True)
     
     args = parser.parse_args()
 
