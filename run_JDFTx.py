@@ -48,12 +48,17 @@ def insert_el(filename):
 
 def initialize_calc(command_file, jdftx_exe):
 
-    notinclude = ['ion-species','include','lcao-params',
+    notinclude = ['ion-species',
+                  #'include',
+                  #'lcao-params',
                   'ionic-minimize',
-                  'dump-name','converge-empty-states',
-                  'latt-scale','latt-move-scale',
+                  #'dump-name',
+                  #'converge-empty-states',
+                  'latt-scale',
+                  'latt-move-scale',
                   'coulomb-interaction',
-                  'coords-type','ion',
+                  'coords-type',
+                  'ion',
 
                   'logfile','pseudos','nimages','max_steps','fmax','optimizer','restart','parallel']
 
