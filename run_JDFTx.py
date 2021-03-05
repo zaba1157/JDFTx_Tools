@@ -52,7 +52,7 @@ def initialize_calc(command_file, jdftx_exe):
                   'ionic-minimize',
                   'dump-name','converge-empty-states',
                   'latt-scale','latt-move-scale',
-                  'density-of-states','coulomb-interaction',
+                  'coulomb-interaction',
                   'coords-type','ion',
 
                   'logfile','pseudos','nimages','max_steps','fmax','optimizer','restart','parallel']
