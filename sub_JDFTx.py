@@ -41,7 +41,7 @@ def write(nodes,cores,time,out,alloc,qos,script):
 
 if __name__ == '__main__':
     
-    script = '/home/nicksingstock/bin/jdft/run_JDFTx.py'
+    script = './run_JDFTx.py'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--nodes', help='Number of nodes',
