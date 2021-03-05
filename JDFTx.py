@@ -194,7 +194,8 @@ class JDFTx(Calculator):
                 # Construct most of the input file
                 inputfile += '\n'
                 for cmd, v in self.input:
-                        inputfile += '%s %s\n' % (cmd, str(v))
+                        #inputfile += '%s %s\n' % (cmd, str(v))
+                        inputfile += cmd + ' ' + v + '\n'
 
                 # Add ion info
                 atomPos = [x / Bohr for x in list(atoms.get_positions())]  # Also convert to bohr
