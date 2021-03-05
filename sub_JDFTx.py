@@ -42,7 +42,7 @@ def write(nodes,cores,time,out,alloc,qos,script):
 
 if __name__ == '__main__':
     
-    jdftx_tools_module_dir = os.environ('JDFTx_Tools_dir')
+    jdftx_tools_module_dir = os.environ['JDFTx_Tools_dir']
     
     script = opj(jdftx_tools_module_dir,'run_JDFTx.py')
 
