@@ -1,0 +1,32 @@
+kpoint-folding 3 3 1
+kpoint 0 0 0 1
+elec-cutoff 20
+elec-smearing Fermi 0.001
+spintype z-spin
+elec-ex-corr gga
+
+fluid LinearPCM
+pcm-variant CANDLE
+fluid-solvent H2O
+# target-mu -0.1668
+fluid-cation Na+ 0.5
+fluid-anion F- 0.5
+
+electronic-minimize energyDiffThreshold 1e-07
+ionic-minimize EnergyDiffThreshold 1E-06
+
+dump End Dtot BoundCharge
+
+
+coulomb-interaction periodic
+dump End State
+dump End Forces
+dump End Ecomponents
+
+
+logfile ptout
+pseudos SG15
+max_steps 50
+fmax 0.05
+optimizer FIRE
+restart True

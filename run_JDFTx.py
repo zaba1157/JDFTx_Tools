@@ -3,7 +3,7 @@
 """
 
 
-@author: zaba1157, nicksingstock
+@author: zaba1157, nisi6161
 """
 
 from JDFTx import JDFTx
@@ -15,6 +15,8 @@ from ase.neb import NEB
 
 opj = os.path.join
 ope = os.path.exists
+
+
 
 
 
@@ -53,7 +55,7 @@ def initialize_calc(command_file, jdftx_exe):
                   'density-of-states','coulomb-interaction',
                   'coords-type','ion',
 
-                  'logfile','pseudos','nimages','max_steps','fmax','optimizer','restart']
+                  'logfile','pseudos','nimages','max_steps','fmax','optimizer','restart','parallel']
 
     def read_commands(command_file,notinclude):
         cmds = {}
@@ -96,6 +98,8 @@ def initialize_calc(command_file, jdftx_exe):
     max_steps = int(script_cmds['max_steps'])
     fmax = float(script_cmds['fmax'])
     restart = True if ('restart' in script_cmds and script_cmds['restart'] == 'True') else False
+    parallel_neb = True if ('parallel' in script_cmds and script_cmds['parallel'] == 'True') else False
+
 
     if ctype == 'opt':
         if restart:
@@ -167,17 +171,27 @@ def initialize_calc(command_file, jdftx_exe):
 
         nimages = int(script_cmds['nimages'])
         image_dirs = [str(i).zfill(2) for i in range(0,nimages+2)]
-        initial = read('00/POSCAR')
-        final = read(opj(str(nimages+1).zfill(2),'POSCAR'))
+        
+        try:
+            initial = read('00/POSCAR')
+            final = read(opj(str(nimages+1).zfill(2),'POSCAR'))
+        except:
+            initial = read('00/CONTCAR')
+            final = read(opj(str(nimages+1).zfill(2),'CONTCAR'))
+        
         images = [initial]
         if restart:
-            images += [read(opj(i,'CONTCAR')) for i in image_dirs[1:-1]]
+            try:
+                images += [read(opj(i,'CONTCAR')) for i in image_dirs[1:-1]]
+            except:
+                images += [read(opj(i,'POSCAR')) for i in image_dirs[1:-1]]
+                print('WARNING: CONTCAR files not found, starting from POSCARs')
         else:
             images += [read(opj(i,'POSCAR')) for i in image_dirs[1:-1]]
         images += [final]
         #images = [read(opj(i,'POSCAR')) for i in image_dirs ]
 
-        neb = NEB(images, parallel=False)
+        neb = NEB(images, parallel=parallel_neb)
         for i, image in enumerate(images[1:-1]):
             #if i == j:
             image.calc = JDFTx(
@@ -238,7 +252,6 @@ def initialize_calc(command_file, jdftx_exe):
 
 if __name__ == '__main__':
 
-    #jdftx_exe = '/home/nicksingstock/jdftx/build/jdftx'
     jdftx_exe = os.environ['JDFTx']
 
     command_file = 'inputs'

@@ -4,15 +4,9 @@
 # See http://jdftx.org for JDFTx and https://wiki.fysik.dtu.dk/ase/ for ASE
 # Authors: Deniz Gunceler, Ravishankar Sundararaman
 
-"""
-Modified:
-    @author: zaba1157
-
-"""
-
 from __future__ import print_function #For Python2 compatibility
 
-import os, scipy, subprocess, re #,tempfile
+import os, scipy, subprocess, tempfile, re
 from ase.calculators.interface import Calculator
 from ase.units import Bohr, Hartree
 
@@ -29,7 +23,7 @@ def replaceVariable(var, varName):
 
 class JDFTx(Calculator):
 
-        def __init__(self, executable=None, pseudoDir=None, pseudoSet='GBRV', commands=None, outfile=os.getcwd()):
+        def __init__(self, executable=None, pseudoDir=None, pseudoSet='GBRV', commands=None, outfile=None):
                 #Valid pseudopotential sets (mapping to path and suffix):
                 pseudoSetMap = {
                         'SG15' : 'SG15/$ID_ONCV_PBE.upf',
@@ -37,6 +31,7 @@ class JDFTx(Calculator):
                         'GBRV-pbe' : 'GBRV/$ID_pbe.uspp',
                         'GBRV-lda' : 'GBRV/$ID_lda.uspp',
                         'GBRV-pbesol' : 'GBRV/$ID_pbesol.uspp',
+                        'kjpaw': 'kjpaw/$ID_pbe-n-kjpaw_psl.1.0.0.upf',
                 }
 
                 #Get default values from environment:
@@ -94,7 +89,7 @@ class JDFTx(Calculator):
 
                 #Run directory:
                 #self.runDir = tempfile.mkdtemp()
-                self.runDir = outfile # Output run files to spcified directory
+                self.runDir = outfile
                 print('Set up JDFTx calculator with run files in \'' + self.runDir + '\'')
 
         ########### Interface Functions ###########
@@ -196,7 +191,7 @@ class JDFTx(Calculator):
                                 inputfile += '\\'
                         inputfile += '\n'
 
-                # Construct start of the input file
+                # Construct most of the input file
                 inputfile += '\n'
                 for cmd, v in self.input:
                         inputfile += '%s %s\n' % (cmd, str(v))
@@ -204,22 +199,16 @@ class JDFTx(Calculator):
                 # Add ion info
                 atomPos = [x / Bohr for x in list(atoms.get_positions())]  # Also convert to bohr
                 atomNames = atoms.get_chemical_symbols()   # Get element names in a list
-                
-                # Get selective dynamics (atoms constraints)
                 try:
                     fixed_atom_inds = atoms.constraints[0].get_indices()
                 except:
                     fixed_atom_inds = []
-                    
-                # Apply selective dynamics    
                 fixPos = []
                 for i in range(len(atomPos)):
                     if i in fixed_atom_inds:
                         fixPos.append(0)
                     else:
                         fixPos.append(1)
-                        
-                # Construct input file coordinates        
                 inputfile += '\ncoords-type cartesian\n'
                 for i in range(len(atomPos)):
                         inputfile += 'ion %s %f %f %f \t %i\n' % (atomNames[i], atomPos[i][0], atomPos[i][1], atomPos[i][2], fixPos[i])
@@ -230,7 +219,7 @@ class JDFTx(Calculator):
                         for pt in self.kpoints:
                                 inputfile += 'kpoint %.8f %.8f %.8f %.14f\n' % pt
 
-                # Add pseudopotentials
+                #Add pseudopotentials
                 inputfile += '\n'
                 if not (self.pseudoDir is None):
                         added = []  # List of pseudopotential that have already been added
