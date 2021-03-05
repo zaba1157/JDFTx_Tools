@@ -198,6 +198,7 @@ class JDFTx(Calculator):
                         vc = '\\'.join(v.split('\\'))
                         vc = '\n'.join(vc.split('\n'))
                         inputfile += cmd + ' ' + vc + '\n'
+                print(inputfile)
 
                 # Add ion info
                 atomPos = [x / Bohr for x in list(atoms.get_positions())]  # Also convert to bohr
