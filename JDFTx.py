@@ -195,9 +195,21 @@ class JDFTx(Calculator):
                 inputfile += '\n'
                 for cmd, v in self.input:
                         #inputfile += '%s %s\n' % (cmd, str(v))
-                        vc = '\\'.join(v.split('\\'))
-                        vc = '\n'.join(vc.split('\n'))
-                        inputfile += cmd + ' ' + vc + '\n'
+                        vc = v
+                        if '\\\n' in v:
+                                print(v)
+                                vc = ''
+                                tmp = v.split('\\\n')
+                                for i,tmpi in enumaerate(tmp):
+                                        if i+1 < len(tmp):
+                                                vc = tmpi + '\\\n'
+                                        else:
+                                                vc = tmpi
+                                print(vc)
+                        #vc = '\\'.join(v.split('\\'))
+                        #vc = '\n'.join(vc.split('\n'))
+                        inputfile += cmd + ' ' 
+                        inputfile += vc + '\n'
                 print(inputfile)
 
                 # Add ion info
