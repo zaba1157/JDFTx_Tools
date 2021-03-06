@@ -196,20 +196,22 @@ class JDFTx(Calculator):
                 for cmd, v in self.input:
                         #inputfile += '%s %s\n' % (cmd, str(v))
                         vc = v
-                        if '\\\n' in v:
+                        if '\\\\\\n' in v:
                                 print(v)
-                                vc = ''
-                                tmp = v.split('\\\n')
-                                for i,tmpi in enumaerate(tmp):
-                                        if i+1 < len(tmp):
-                                                vc = tmpi + '\\\n'
-                                        else:
-                                                vc = tmpi
+                                vc = '\\\n'.join(v.split('\\\\\\n'))
+                                #vc = ''
+                                #tmp = v.split('\\\n')
+                                #for i,tmpi in enumaerate(tmp):
+                                #        if i+1 < len(tmp):
+                                #                vc = tmpi + '\\\n'
+                                #        else:
+                                #                vc = tmpi
                                 print(vc)
                         #vc = '\\'.join(v.split('\\'))
                         #vc = '\n'.join(vc.split('\n'))
                         inputfile += cmd + ' ' 
                         inputfile += vc + '\n'
+                print('\nBug checking\n\n')
                 print(inputfile)
 
                 # Add ion info
