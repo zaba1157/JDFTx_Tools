@@ -10,7 +10,16 @@ import os
 
 opj = os.path.join
 
-def write(nodes,cores,time,out,alloc,qos,script):
+def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
+    if short_recursive == 'True':
+        if time != 4: 
+            print('Warning: Time limit set to 04:00:00 from short_recursive')
+            time = 4
+        if nodes > 4: 
+            print('Warning: Nodes set to 4 from short_recursive')
+            nodes = 4
+        out = 'sc_'+out
+
     np=nodes*cores
     writelines = '#!/bin/bash'+'\n'
     writelines+='#SBATCH -J '+out+'\n'
@@ -31,9 +40,18 @@ def write(nodes,cores,time,out,alloc,qos,script):
 
     if time == 1:
         writelines+='#SBATCH --partition=debug\n'
+    
     writelines+='\nexport JDFTx_NUM_PROCS='+str(np)+'\n'
     writelines+='module load comp-intel/2020.1.217 intel-mpi/2020.1.217 cuda/10.2.89 vasp/6.1.1 mkl/2020.1.217 gsl/2.5/gcc openmpi/4.0.4/gcc-8.4.0 gcc/7.4.0'+'\n\n'
-    writelines+='python '+script+' > '+out+'\n'
+    
+    if short_recursive == 'True':
+        # short_recursive command runs timer script before and after JDFT to check if walltime is hit
+        writelines+='timeout 10 python /home/nicksingstock/bin/JDFTx_Tools/timer.py > timer'+'\n'
+        writelines+='timeout 14300 ' + 'python '+script+' > '+out+'\n'
+        writelines+='timeout 10 python /home/nicksingstock/bin/JDFTx_Tools/timer.py > timer'+'\n'
+
+    else:
+        writelines+='python '+script+' > '+out+'\n'
     writelines+='exit 0'+'\n'
 
     with open('submit.sh','w') as f:
@@ -59,10 +77,12 @@ if __name__ == '__main__':
                         type=str,default='environ')
     parser.add_argument('-q', '--qos', help='Priority / QOS (e.g. high)',
                         type=str,default='standard')
-    
+    parser.add_argument('-r', '--short_recursive', help='If True, recursively runs job on short queue',
+                        type=str, default='False')
+
     args = parser.parse_args()
 
     write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,
-          script)
+          script, args.short_recursive)
     os.system('sbatch submit.sh')
     
