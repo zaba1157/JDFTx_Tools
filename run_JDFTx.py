@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-
+Musgrave Group
 
 @author: zaba1157, nisi6161
 """
@@ -13,11 +13,9 @@ from ase.optimize import BFGS, BFGSLineSearch, LBFGS, LBFGSLineSearch, GPMin, MD
 from ase.io.trajectory import Trajectory
 from ase.neb import NEB
 
+
 opj = os.path.join
 ope = os.path.exists
-
-
-
 
 
 def insert_el(filename):
@@ -45,6 +43,36 @@ def insert_el(filename):
     fp.writelines(contents)
     fp.close()
 
+def add_dos(cmds):
+    from pymatgen.core.structure import Structure
+    if not ope('./inputs_dos'):
+        return cmds
+    new_cmds = []
+    for cmd in cmds:
+        if 'density-of-states' in cmd:
+            print('WARNING: command density-of-states in inputs file is being overwritten by inputs_dos!')
+            continue
+        new_cmds += [cmd]
+    with open('./inputs_dos','r') as f:
+        dos = f.read()
+    st = Structure.from_file('./POSCAR')
+    
+    dos_line = ''
+    for line in dos.split('\n'):
+        if 'Orbital' in line and len(line.split()) == 3:
+            # Format: Orbital Atom_type orbital_type(s)
+            # Adds DOS for ALL atoms of this type and all requested orbitals
+            atom_type = line.split()[1]
+            indices = [i for i,el in enumerate(st.species) if str(el) == atom_type]
+            orbitals = [orb for orb in line.split()[2]]
+            assert all([orb in ['s','p','d','f'] for orb in orbitals]), 'ERROR: Not all orbital types allowed! ('+','.join(orbitals)+')'
+            for i in range(len(indices)):
+                for orbital in orbitals:
+                    dos_line += ' \\\nOrbital ' +atom_type + ' ' + str(i+1) + ' ' + orbital 
+        else:
+            dos_line += ' \\\n' + line
+    new_cmds += [('density-of-states', dos_line)]
+    return new_cmds
 
 def initialize_calc(command_file, jdftx_exe):
 
@@ -88,6 +116,7 @@ def initialize_calc(command_file, jdftx_exe):
 
 
     cmds, script_cmds = read_commands(command_file,notinclude)
+    cmds = add_dos(cmds)
 
     def calc_type(script_cmds):
         if 'nimages' in script_cmds.keys():
