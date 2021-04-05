@@ -20,16 +20,18 @@ To begin, please add a surface POSCAR to a subfolder (e.g. SURF_01) in the calcs
 	
 	"=" tag indicates a new surface
 	"+" tags refer to specific changes made to "inputs" file for respective surface.
-		All downstream molecules are also affected. Molecule specific changes can also be made
-	"-" adds a molecule to the surface above the listed atoms (e.g. atoms 10 & 11 in surf CONTCAR)
+		All nested calculations for the surface inherit the same tag changes. 
+		Molecule specific changes can also be made separate from surface.
+	"-" adds a molecule to the surface above the listed atoms. Can be 1) name of atom on surface, 
+		2) specific atom index, or 3) 'All' positions on surface
 	
 	Keywords -- for molecules/adsorbates these include: 
 		"Biases:" - List of all biases for adsorbate calcs, must be subset of surface biases. 
-					Also needed for all surfaces. Must be separated by ", "
+					Also needed for all surfaces. Must be separated by ", ". Biases in RHE by default.
 		"Desorb:" - Creates desorbed state for NEB calcs at listed biases
 		"NEB:" - Creates an NEB calc, needs following params:
-				 1. Adsorbed site/folder (e.g., site 10)
-				 2. Bias for NEB (e.g., -0.1 V)
+				 1. Adsorbed state folder (e.g., 01). This should be the folder name in calcs/
+				 2. Bias for NEB (e.g., -0.1 V). Must be within molecule biases list.
 				 3. Images to run (e.g., 7)
 				 4. fmax tag (e.g., 0.05)
 	Note: Inclusion of a molecule to be an adsorbate will run the corresponding molecule in the 
@@ -44,8 +46,8 @@ Biases: [None, 0, -0.1, -0.5]
 Biases: [0, -0.1]
 Desorb: [0, -0.1]
 
-NEB: 10 -0.1 7 0.05
-NEB: 11 0 7 0.05
+NEB: 01 -0.1 7 0.05
+NEB: 01 0 7 0.05
 
 -MOL_02: [10]
 Biases: [-0.5]
