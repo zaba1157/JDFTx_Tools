@@ -4,11 +4,11 @@ elec-cutoff 20
 elec-smearing Fermi 0.008
 spintype z-spin
 elec-ex-corr gga
+latt-move-scale 1 1 0
 
 fluid LinearPCM
 pcm-variant CANDLE
 fluid-solvent H2O
-# target-mu -0.1668
 fluid-cation Na+ 0.5
 fluid-anion F- 0.5
 
@@ -22,9 +22,9 @@ dump End Ecomponents
 dump Electronic State
 dump Fluid State
 
-logfile ptout
+logfile outfile
 pseudos SG15
-max_steps 500
+max_steps 200
 fmax 0.01
 optimizer FIRE
 restart False

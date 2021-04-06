@@ -1,14 +1,14 @@
 kpoint-folding 5 5 1
 kpoint 0 0 0 1
 elec-cutoff 20
-elec-smearing Fermi 0.008
+elec-smearing Fermi 0.001
 spintype z-spin
 elec-ex-corr gga
+latt-move-scale 0 0 0
 
 fluid LinearPCM
 pcm-variant CANDLE
 fluid-solvent H2O
-# target-mu -0.1668
 fluid-cation Na+ 0.5
 fluid-anion F- 0.5
 
@@ -24,7 +24,7 @@ dump Fluid State
 
 logfile ptout
 pseudos SG15
-max_steps 500
+max_steps 100
 fmax 0.01
 optimizer FIRE
 restart False

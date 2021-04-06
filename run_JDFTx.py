@@ -27,21 +27,28 @@ def insert_el(filename):
 
 
     """
-    fp = open(filename,"r")
-    contents = fp.readlines()
-    line = 0
-    for i in contents:
-        if line == 0:
-            ele_line = i
-        else:
-            break
-        line += 1
-    fp.close()
-
-    contents.insert(5, ele_line)
-    fp = open(filename, "w")
-    fp.writelines(contents)
-    fp.close()
+#    fp = open(filename,"r")
+#    contents = fp.readlines()
+#    line = 0
+#    for i in contents:
+#        if line == 0:
+#            ele_line = i
+#        else:
+#            break
+#        line += 1
+#    fp.close()
+    with open(filename, 'r') as f:
+        file = f.read()
+    contents = file.split('\n')
+    ele_line = contents[0]
+    if contents[5].split() != ele_line.split():
+        contents.insert(5, ele_line)
+    with open(filename, 'w') as f:
+        f.write('\n'.join(contents))
+#    contents.insert(5, ele_line)
+#    fp = open(filename, "w")
+#    fp.writelines(contents)
+#    fp.close()
 
 def add_dos(cmds):
     from pymatgen.core.structure import Structure
@@ -87,7 +94,7 @@ def initialize_calc(command_file, jdftx_exe):
                   'coulomb-interaction',
                   'coords-type',
                   'ion',
-
+                  'climbing',
                   'logfile','pseudos','nimages','max_steps','fmax','optimizer','restart','parallel']
 
     def read_commands(command_file,notinclude):
@@ -135,7 +142,7 @@ def initialize_calc(command_file, jdftx_exe):
     fmax = float(script_cmds['fmax'])
     restart = True if ('restart' in script_cmds and script_cmds['restart'] == 'True') else False
     parallel_neb = True if ('parallel' in script_cmds and script_cmds['parallel'] == 'True') else False
-
+    climbing_neb = True if ('climbing' in script_cmds and script_cmds['climbing'] == 'True') else False
 
     if ctype == 'opt':
         if restart:
@@ -227,7 +234,7 @@ def initialize_calc(command_file, jdftx_exe):
         images += [final]
         #images = [read(opj(i,'POSCAR')) for i in image_dirs ]
 
-        neb = NEB(images, parallel=parallel_neb)
+        neb = NEB(images, parallel=parallel_neb, climb=climbing_neb) 
         for i, image in enumerate(images[1:-1]):
             #if i == j:
             image.calc = JDFTx(

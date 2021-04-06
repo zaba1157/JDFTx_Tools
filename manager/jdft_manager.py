@@ -183,7 +183,7 @@ class jdft_manager():
         parser.add_argument('-cc', '--check_calcs', help='Check convergence of all managed calculations. '+
                             'Default True.',type=str, default='True')
         parser.add_argument('-u', '--rerun_unconverged', help='Rerun all unconverged calculations being managed, '+
-                            'requires "check_calcs". Default False.',type=str, default='False')
+                            'requires "check_calcs". Default True.',type=str, default='True')
         parser.add_argument('-v', '--save', help='Save all newly processed data, requires "check_calcs".'+
                             ' Default True.',type=str, default='True')
         parser.add_argument('-a', '--analyze', help='Runs analysis on converged calcs, requires "save".'+
@@ -217,9 +217,9 @@ class jdft_manager():
                             'file to speed up reading. Default False.', type=str, default='False')
         parser.add_argument('-rhe', '--rhe_zeroed', help='If True (default), converts all biases to be zeroed '+
                             'at 0V vs. RHE rather than 0V vs. SHE (if False).', type=str, default='True')
-        parser.add_argument('-ph', '--ph_rhe', help='pH for calculating SHE bias from RHE.'+
-                            ' Default 7.0. Be careful and consistent if changing! Requires rhe_zeroed = True',
-                            type=float, default=7.0)
+#        parser.add_argument('-ph', '--ph_rhe', help='pH for calculating SHE bias from RHE.'+
+#                            ' Default 7.0. Be careful and consistent if changing! Requires rhe_zeroed = True',
+#                            type=float, default=7.0)
         parser.add_argument('-q', '--qos', help='Whether qos should be high (True) or standard. Default False.',
                             type=str, default='False')
         self.args = parser.parse_args()
@@ -582,14 +582,14 @@ class jdft_manager():
                         # 0 V not yet converged! 
                         continue
                     # upgrade from 0 V (which exists!)
-                    self.upgrade_calc(root, zero_root, bias)
+                    self.upgrade_calc(root, zero_root, bias, v['tags'])
                     new_roots.append(root)
                 elif bias == 0.0:
                     # bias is zero, ensure no-mu is converged
                     nm_root = os.path.join(calc_folder, 'surfs', surf, 'No_bias') 
                     if nm_root not in converged:
                         continue
-                    self.upgrade_calc(root, nm_root, bias)
+                    self.upgrade_calc(root, nm_root, bias, v['tags'])
                     new_roots.append(root)
                 elif bias == 'No_bias':
                     # initial setup of no-mu surface
@@ -656,7 +656,7 @@ class jdft_manager():
                             if 'tags' in v: tags += v['tags']
 #                            tags += 'target-mu '+ ('None' if bias in ['None','none','No_bias'] else '%.2f'%bias)
                             tags += ['target-mu '+ ('None' if bias in ['None','none','No_bias'] 
-                                     else '%.4f' % self.get_mu(bias, self.read_inputs(sl)))]
+                                     else '%.4f' % self.get_mu(bias, self.read_inputs(sl), tags))]
                             self.add_tags(sl, tags)
                             new_roots.append(sl)
                 
@@ -692,7 +692,7 @@ class jdft_manager():
                                 tags = mv['tags'] if 'tags' in mv else []
                                 if 'tags' in v: tags += v['tags']
                                 tags += ['target-mu '+ ('None' if bias in ['None','none','No_bias'] 
-                                         else '%.4f' % self.get_mu(bias, self.read_inputs(sl)))]
+                                         else '%.4f' % self.get_mu(bias, self.read_inputs(sl), tags))]
                                 if desorbed_single_point:
                                     tags += ['max_steps 0']
                                 self.add_tags(sl, tags)
@@ -747,7 +747,7 @@ class jdft_manager():
                             tags = mv['tags'] if 'tags' in mv else []
                             if 'tags' in v: tags += v['tags']
                             tags += ['target-mu '+ ('None' if bias in ['None','none','No_bias'] 
-                                     else '%.4f' % self.get_mu(neb['bias'], self.read_inputs(neb_folder)))]
+                                     else '%.4f' % self.get_mu(neb['bias'], self.read_inputs(neb_folder), tags))]
                             tags += ['nimages '+str(nimages)]
                             self.add_tags(neb_folder, tags)
                             new_roots.append(neb_folder)
@@ -786,11 +786,13 @@ class jdft_manager():
             if tag_v in ['None']:
                 if tag_k in inputs:
                     del inputs[tag_k]
+            elif tag_v in ['pH','ph']:
+                inputs['pH'] = tag_v
             else:
                 inputs[tag_k] = tag_v
         self.write_inputs(inputs, root)
     
-    def upgrade_calc(self, new_root, old_root, bias, verbose = True):
+    def upgrade_calc(self, new_root, old_root, bias, tags, verbose = True):
         os.mkdir(new_root)
         self.run('cp ' + os.path.join(old_root, 'CONTCAR') + ' ' + os.path.join(new_root, 'POSCAR'))
         inputs = self.read_inputs(old_root)
@@ -798,13 +800,13 @@ class jdft_manager():
             if 'target-mu' in inputs:
                 del inputs['target-mu']
         else:
-            mu = self.get_mu(bias, inputs)
+            mu = self.get_mu(bias, inputs, tags)
             inputs['target-mu'] = '%.4f'%(mu)
         inputs['restart'] = 'False'
         self.write_inputs(inputs, new_root)
         if verbose: print('Upgraded '+old_root+' to '+new_root)
     
-    def get_mu(self, bias, inputs):
+    def get_mu(self, bias, inputs, tags = []):
         if bias == 'None':
             return 'None'
         assert 'fluid' in inputs, 'ERROR: fluid tag must be in inputs files to run biases!'
@@ -820,7 +822,12 @@ class jdft_manager():
         rhe_shift = 0
         if self.args.rhe_zeroed:
             #JDFT uses SHE as zero point. 0V vs RHE === (-0.0591 * pH) V vs SHE
-            rhe_shift = -0.0591 * self.args.ph_rhe # input is RHE/V bias, output is SHE/JDFT/Hartree bias
+#            rhe_shift = -0.0591 * self.args.ph_rhe # input is RHE/V bias, output is SHE/JDFT/Hartree bias
+            pH = 7.0
+            for tag in tags:
+                if 'pH' in tag or 'ph' in tag: 
+                    pH = float(tag.split()[-1])
+            rhe_shift = -0.0591 * pH #7 if 'pH' not in inputs else -0.0591 * float(inputs['pH'])
         return -(Vref + bias + rhe_shift)/27.2114 
         
     def read_manager_control(self, mc_text):
@@ -961,9 +968,9 @@ class jdft_manager():
         # check that 10A (dist) of space is available in the vacuum above surface
         coords = st.cart_coords
         max_lens = [np.max(coords[:,0]), np.max(coords[:,1]), np.max(coords[:,2])]
-        if max_lens[2] <= max_lens[0] or max_lens[2] <= max_lens[1]:
-            print('Bad Surface: surface is wider than it is tall, skipping: '+file)
-            return False
+#        if max_lens[2] <= max_lens[0] or max_lens[2] <= max_lens[1]:
+#            print('Bad Surface: surface is wider than it is tall, skipping: '+file)
+#            return False
         if st.lattice.c - max_lens[2] < dist:
             print('Bad Surface: Needs at least '+str(dist)+'A of vacuum space above surface, skipping: '+file)
             return False
@@ -1117,6 +1124,12 @@ DONE    9. setup NEB calcs and manage
     14. Run DOS SP calcs on converged structures (if user requested)
     15. Make ref_mols a separate file so user can edit
     16. Optional pre-NEB image SP calcs for wfns.
+    17. Add NEB building from any two directories (with warnings/errors about structure diffs)
+        to enable non-adsorption barriers to be studied
+    18. Add back in ability to run two+ adsorbates as a single calculation with "_" separator
+    19. Add charge density analysis using Aziz script on Summit. Oxi-states available in out file.
+    
+DONE   FIX ERROR: -r jobs are running with resart False so they keep starting from POSCAR
 
 surf -> run calc nomu -> run calc 0 V -> run other biases 
                       -> add adsorbates above converged surf at same bias

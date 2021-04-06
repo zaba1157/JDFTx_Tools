@@ -7,16 +7,17 @@ Created on Fri Nov  6 20:43:05 2020
 """
 import argparse
 import os
+import subprocess
 
 opj = os.path.join
 
 def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
     if short_recursive == 'True':
         if time != 4: 
-            print('Warning: Time limit set to 04:00:00 from short_recursive')
+            print('Time limit set to 04:00:00 from short_recursive')
             time = 4
         if nodes > 4: 
-            print('Warning: Nodes set to 4 from short_recursive')
+            print('Nodes set to 4 from short_recursive')
             nodes = 4
         out = 'sc_'+out
 
@@ -57,6 +58,25 @@ def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
     with open('submit.sh','w') as f:
         f.write(writelines)
 
+def recursive_restart():
+    with open('inputs','r') as f:
+        inputs = f.read()
+    lines = []
+    for line in inputs.split('\n'):
+        if 'restart' in line:
+            if line == 'restart True':
+                return
+            lines.append('restart True')
+        else:
+            lines.append(line)
+    with open('inputs','w') as f:
+        f.write('\n'.join(lines))
+    print('Updated inputs file for -r tag.')
+    if os.path.exists('CONTCAR'):
+        return
+        #subprocess.call('cp CONTCAR CONTCAR_backup', shell=True)
+    subprocess.call('cp POSCAR CONTCAR', shell=True)
+    print('Copied POSCAR to CONTCAR')
 
 if __name__ == '__main__':
     
@@ -81,7 +101,9 @@ if __name__ == '__main__':
                         type=str, default='False')
 
     args = parser.parse_args()
-
+    
+    if args.short_recursive == 'True':
+        recursive_restart()
     write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,
           script, args.short_recursive)
     os.system('sbatch submit.sh')

@@ -21,7 +21,7 @@ To begin, please add a surface POSCAR to a subfolder (e.g. SURF_01) in the calcs
 	"=" tag indicates a new surface
 	"+" tags refer to specific changes made to "inputs" file for respective surface.
 		All nested calculations for the surface inherit the same tag changes. 
-		Molecule specific changes can also be made separate from surface.
+		Molecule specific changes can also be made separate from surface. pH can be set as a tag.
 	"-" adds a molecule to the surface above the listed atoms. Can be 1) name of atom on surface, 
 		2) specific atom index, or 3) 'All' positions on surface
 	
