@@ -8,7 +8,7 @@ Created on Tue Mar 30 11:33:52 2021
 from pymatgen.core.surface import Structure
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 import numpy as np
-from pymatgen import Molecule
+from pymatgen.core.structure import Molecule
 import os
 
 

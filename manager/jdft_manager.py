@@ -158,11 +158,11 @@ class jdft_manager():
     def check_setup(self):
         if not all([os.path.exists(f) for f in [calc_folder, molecule_folder, 
                     inputs_folder, results_folder]]):
-            print('1')
+#            print('1')
             return False
 #        for subdir in os.listdir(calc_folder):
         if any([x not in os.listdir(calc_folder) for x in self.calc_subfolders]):
-            print('2')
+#            print('2')
             return False
         return True
     
@@ -582,14 +582,14 @@ class jdft_manager():
                         # 0 V not yet converged! 
                         continue
                     # upgrade from 0 V (which exists!)
-                    self.upgrade_calc(root, zero_root, bias, v['tags'])
+                    self.upgrade_calc(root, zero_root, bias, v['tags'] if 'tags' in v else [])
                     new_roots.append(root)
                 elif bias == 0.0:
                     # bias is zero, ensure no-mu is converged
                     nm_root = os.path.join(calc_folder, 'surfs', surf, 'No_bias') 
                     if nm_root not in converged:
                         continue
-                    self.upgrade_calc(root, nm_root, bias, v['tags'])
+                    self.upgrade_calc(root, nm_root, bias, v['tags'] if 'tags' in v else [])
                     new_roots.append(root)
                 elif bias == 'No_bias':
                     # initial setup of no-mu surface
