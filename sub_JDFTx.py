@@ -11,6 +11,11 @@ import subprocess
 
 opj = os.path.join
 
+try:
+    modules=' '.join(os.environ['JDFTx_mods'].split('_'))
+except:
+    modules='comp-intel/2020.1.217 intel-mpi/2020.1.217 cuda/10.2.89 vasp/6.1.1 mkl/2020.1.217 gsl/2.5/gcc openmpi/4.0.4/gcc-8.4.0 gcc/7.4.0'
+
 def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
     if short_recursive == 'True':
         if time != 4: 
@@ -43,8 +48,9 @@ def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
         writelines+='#SBATCH --partition=debug\n'
     
     writelines+='\nexport JDFTx_NUM_PROCS='+str(np)+'\n'
-    writelines+='module load comp-intel/2020.1.217 intel-mpi/2020.1.217 cuda/10.2.89 vasp/6.1.1 mkl/2020.1.217 gsl/2.5/gcc openmpi/4.0.4/gcc-8.4.0 gcc/7.4.0'+'\n\n'
-    
+    #writelines+='module load comp-intel/2020.1.217 intel-mpi/2020.1.217 cuda/10.2.89 vasp/6.1.1 mkl/2020.1.217 gsl/2.5/gcc openmpi/4.0.4/gcc-8.4.0 gcc/7.4.0'+'\n\n'
+    writelines+='module load '+modules+'\n\n'
+
     if short_recursive == 'True':
         # short_recursive command runs timer script before and after JDFT to check if walltime is hit
         writelines+='timeout 10 python /home/nicksingstock/bin/JDFTx_Tools/timer.py > timer'+'\n'
