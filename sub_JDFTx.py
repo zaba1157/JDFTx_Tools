@@ -16,6 +16,11 @@ try:
 except:
     modules='comp-intel/2020.1.217 intel-mpi/2020.1.217 cuda/10.2.89 vasp/6.1.1 mkl/2020.1.217 gsl/2.5/gcc openmpi/4.0.4/gcc-8.4.0 gcc/7.4.0'
 
+try:
+    comp=os.environ['JDFTx_Computer']
+except:
+    comp='Eagle'
+
 def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
     if short_recursive == 'True':
         if time != 4: 
@@ -64,6 +69,47 @@ def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
     with open('submit.sh','w') as f:
         f.write(writelines)
 
+# bridges requires --nodes, -t, --ntasks-per-node, -p
+def write_bridges(nodes,cores,time,out,partition,qos,script,short_recursive):
+    if short_recursive == 'True':
+        if time > 4: 
+            print('Time limit set to 04:00:00 from short_recursive')
+            time = 4
+        out = 'sc_'+out
+
+    if partition == 'RM':
+        cores = 128
+    elif partition == 'RM-shared':
+        cores = 64
+    writelines = '#!/bin/bash'+'\n'
+    writelines+='#SBATCH -J '+out+'\n'
+    writelines+='#SBATCH -t '+str(time)+':00:00'+'\n'
+    writelines+='#SBATCH -o '+out+'-%j.out'+'\n'
+    writelines+='#SBATCH -e '+out+'-%j.err'+'\n'
+    writelines+='#SBATCH -p '+partition+'\n'
+    writelines+='#SBATCH --nodes '+str(nodes)+'\n'
+    writelines+='#SBATCH --ntasks-per-node '+str(cores)+'\n'
+
+    if qos=='high':
+        writelines+='#SBATCH --qos=high'+'\n'
+    
+    writelines+='\nexport JDFTx_NUM_PROCS='+str(np)+'\n'
+    writelines+='module load '+modules+'\n\n'
+
+    if short_recursive == 'True':
+        # short_recursive command runs timer script before and after JDFT to check if walltime is hit
+        writelines+='timeout 10 python /home/nicksingstock/bin/JDFTx_Tools/timer.py > timer'+'\n'
+        writelines+='timeout 14300 ' + 'python '+script+' > '+out+'\n'
+        writelines+='timeout 10 python /home/nicksingstock/bin/JDFTx_Tools/timer.py > timer'+'\n'
+
+    else:
+        writelines+='python '+script+' > '+out+'\n'
+    writelines+='exit 0'+'\n'
+
+    with open('submit.sh','w') as f:
+        f.write(writelines)
+
+
 def recursive_restart():
     with open('inputs','r') as f:
         inputs = f.read()
@@ -105,12 +151,22 @@ if __name__ == '__main__':
                         type=str,default='standard')
     parser.add_argument('-r', '--short_recursive', help='If True, recursively runs job on short queue',
                         type=str, default='False')
+    parser.add_argument('-p', '--partition', help='Partition for Bridges2 (RM, RM-shared)',
+                        type=str,default='RM-shared')
+
 
     args = parser.parse_args()
     
     if args.short_recursive == 'True':
         recursive_restart()
-    write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,
-          script, args.short_recursive)
+
+    # Multiple write options depending on computer
+    if comp == 'Eagle':
+        write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,
+              script, args.short_recursive)
+    elif comp == 'Bridges2':
+        write_bridges(args.nodes,args.cores,args.time,args.outfile,args.partition,args.qos,
+                      script, args.short_recursive)
+    
     os.system('sbatch submit.sh')
     
