@@ -81,6 +81,8 @@ def write_bridges(nodes,cores,time,out,partition,qos,script,short_recursive):
         cores = 128
     elif partition == 'RM-shared':
         cores = 64
+    np=nodes*cores
+    
     writelines = '#!/bin/bash'+'\n'
     writelines+='#SBATCH -J '+out+'\n'
     writelines+='#SBATCH -t '+str(time)+':00:00'+'\n'
