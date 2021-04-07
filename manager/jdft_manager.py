@@ -1095,9 +1095,15 @@ calc_folder = 'calcs/'
 molecule_folder = 'molecules/'
 results_folder = 'results/'
 inputs_folder = 'inputs/'
+
+try:
+    home_dir = os.environ['JDFTx_home']
+except:
+    home_dir = '/home/nicksingstock'
+
 core_architecture = 36
-defaults_folder = '/home/nicksingstock/bin/JDFTx_Tools/manager/defaults/'
-run_command = 'python /home/nicksingstock/bin/JDFTx_Tools/sub_JDFTx.py'
+defaults_folder = os.path.join(home_dir, 'bin/JDFTx_Tools/manager/defaults/')
+run_command = 'python '+ os.path.join(home_dir, 'bin/JDFTx_Tools/sub_JDFTx.py')
 
 
 '''
