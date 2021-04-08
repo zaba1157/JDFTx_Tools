@@ -244,3 +244,69 @@ def data_analysis(all_data, ref_mols):
                 # TODO: finish ads energy analysis 
     
     return all_data
+
+def write_parallel(roots, cwd, total_cores, cores_per_job, time, out, shell_folder,
+                   qos = None, nodes=1):
+    # get all necessary inputs
+    script = os.path.join(os.environ['JDFTx_Tools_dir'], 'run_JDFTx.py')
+    try:
+        modules=' '.join(os.environ['JDFTx_mods'].split('_'))
+    except:
+        modules=('comp-intel/2020.1.217 intel-mpi/2020.1.217 cuda/10.2.89 vasp/6.1.1 mkl/2020.1.217'+
+                 ' gsl/2.5/gcc openmpi/4.0.4/gcc-8.4.0 gcc/7.4.0')
+    try:
+        comp=os.environ['JDFTx_Computer']
+    except:
+        comp='Eagle'
+    alloc = None
+    if comp == 'Eagle':
+        try:
+            alloc = os.environ['JDFTx_allocation']
+        except:
+            alloc = 'electrobuffs'
+    partition = None
+    if comp == 'Bridges2':
+        partition = 'RM-shared'
+    
+    # create shell file
+    writelines = '#!/bin/bash'+'\n'
+    writelines+='#SBATCH -J '+out+'\n'
+    if comp == 'Bridges2':
+        writelines+='#SBATCH -t '+str(time)+':00:00'+'\n'
+    else:
+        writelines+='#SBATCH --time='+str(time)+':00:00'+'\n'
+    writelines+='#SBATCH -o '+out+'-%j.out'+'\n'
+    writelines+='#SBATCH -e '+out+'-%j.err'+'\n'
+    
+    if partition is not None:
+        writelines+='#SBATCH -p '+partition+'\n'
+    if alloc is not None:
+        writelines+='#SBATCH --account='+alloc+'\n'
+
+    if comp == 'Eagle':
+        writelines+='#SBATCH --tasks '+str(nodes * total_cores)+'\n'
+    writelines+='#SBATCH --nodes '+str(nodes)+'\n'
+    writelines+='#SBATCH --ntasks-per-node '+str(total_cores)+'\n'
+
+    if qos=='high' and comp == 'Eagle':
+        writelines+='#SBATCH --qos=high'+'\n'
+
+    if time == 1 and comp == 'Eagle':
+        writelines+='#SBATCH --partition=debug\n'
+    
+    writelines+='\nexport JDFTx_NUM_PROCS='+str(cores_per_job)+'\n'
+    writelines+='module load '+modules+'\n\n'
+
+    for i, root in enumerate(roots):
+        if i+1 < len(roots):
+            add = ' &'
+        else:
+            add = ' && fg'
+        writelines+=('python ' + script +' -d '+ os.path.join(cwd, root) + ' > '
+                     + os.path.join(cwd, root, 'out_file') + add + '\n')
+        
+    writelines+='exit 0'+'\n'
+
+    with open(os.path.join(shell_folder, out+'.sh'),'w') as f:
+        f.write(writelines)
+

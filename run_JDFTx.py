@@ -12,6 +12,7 @@ from ase.io import read
 from ase.optimize import BFGS, BFGSLineSearch, LBFGS, LBFGSLineSearch, GPMin, MDMin, FIRE
 from ase.io.trajectory import Trajectory
 from ase.neb import NEB
+import argparse
 
 
 opj = os.path.join
@@ -94,7 +95,7 @@ def initialize_calc(command_file, jdftx_exe):
                   'coulomb-interaction',
                   'coords-type',
                   'ion',
-                  'climbing',
+                  'climbing','pH','ph',
                   'logfile','pseudos','nimages','max_steps','fmax','optimizer','restart','parallel']
 
     def read_commands(command_file,notinclude):
@@ -296,6 +297,14 @@ def initialize_calc(command_file, jdftx_exe):
 if __name__ == '__main__':
 
     jdftx_exe = os.environ['JDFTx']
-
+    
+    # optional, change to another directory (for parallel runs)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-d', '--dir', help='Directory to run in and save files to.',
+                        type=str, default='./')
+    args = parser.parse_args()
+    if args.dir != './':
+        os.chdir(args.dir)
+    
     command_file = 'inputs'
     initialize_calc(command_file, jdftx_exe)

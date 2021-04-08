@@ -6,7 +6,7 @@ import subprocess
 import json
 from pymatgen.core.structure import Structure
 import numpy as np
-from adsorbate_helper import save_structures, add_adsorbates, data_analysis, setup_neb
+from adsorbate_helper import save_structures, add_adsorbates, data_analysis, setup_neb, write_parallel
 
 reference_molecules = {'H': {'refs': ['H2'], 'coeffs': [0.5]},
                        'H2': {'refs': ['H2'], 'coeffs': [1]},
@@ -226,6 +226,9 @@ class jdft_manager():
 #                            type=float, default=7.0)
         parser.add_argument('-q', '--qos', help='Whether qos should be high (True) or standard. Default False.',
                             type=str, default='False')
+        parser.add_argument('-p', '--parallel', help='Runs multiple calcs together on a single node. Input'+
+                            ' should be max number (int) of calcs to run together per node. Default 1.',
+                            type=int, default=1)
         self.args = parser.parse_args()
     
     def __get_run_cmd__(self):
@@ -483,10 +486,18 @@ class jdft_manager():
         
         for root in rerun:
             os.chdir(root)
+#            inputs = self.read_inputs('./')
+#            inputs['restart'] = 'True'
+#            self.write_inputs(inputs, './')
+            self.run(self.run_cmd + ' -o '+self.get_job_name(root))
+            os.chdir(self.cwd)
+            
+    def update_rerun(self, rerun):
+        for root in rerun:
+            os.chdir(root)
             inputs = self.read_inputs('./')
             inputs['restart'] = 'True'
             self.write_inputs(inputs, './')
-            self.run(self.run_cmd + ' -o '+self.get_job_name(root))
             os.chdir(self.cwd)
     
     def get_job_name(self, root):
@@ -1023,6 +1034,44 @@ class jdft_manager():
             self.run(self.run_cmd + ' -o '+self.get_job_name(root))
             os.chdir(self.cwd)
             print('Calculation run: '+self.get_job_name(root))
+    
+    def run_all_parallel(self, roots):
+        '''
+        This function handles submitting clusters of calculations together on single nodes
+        '''
+        print('\n----- Running All Calcs in Parallel -----\n')
+        
+        max_per_node = self.args.parallel
+        total_calcs = len(roots)
+        if total_calcs < max_per_node:
+            max_per_node = total_calcs
+        cores_per_node = core_architecture
+        total_nodes = int(np.ceil(total_calcs / max_per_node))
+        cores_per_calc = int(np.floor(cores_per_node / max_per_node))
+        
+        shells = []
+        shell_folder = 'tmp_parallel'
+        if os.path.exists(shell_folder):
+            for shell_root, dirs, files in os.walk(shell_folder):
+                for name in files:
+                    os.remove(os.path.join(shell_root, name))
+        else:
+            os.mkdir(shell_folder)
+        
+        # write calcs for each node to tmp_parallel folder
+        for i in range(total_nodes):
+            sub_roots = roots[i*max_per_node:(i+1)*max_per_node]
+            out_file = 'submit_'+str(i)
+            write_parallel(sub_roots, self.cwd, cores_per_node, cores_per_calc, self.args.run_time, out_file, 
+                           shell_folder, self.args.qos)
+            shells.append(out_file + '.sh')
+        
+        # submit shell scripts
+        os.chdir(shell_folder)
+        for shell in shells:
+            os.system('sbatch '+shell)
+        os.chdir(self.cwd)
+        
         
     def manager(self):
         '''
@@ -1041,6 +1090,9 @@ class jdft_manager():
         if os.path.isfile(self.data_file) and self.args.read_all != 'True':
             with open(self.data_file, 'r') as f:
                 all_data = json.load(f)
+                
+        # get parallel tag
+        parallel = self.args.parallel
         
         # scan through all subfolders to check for converged structures 
         add_inputs = []
@@ -1067,8 +1119,10 @@ class jdft_manager():
             with open(os.path.join(results_folder, 'unconverged.txt'), 'w') as f:
                 f.write('\n'.join(rerun))
             if self.args.rerun_unconverged == 'True' and len(rerun) > 0: #self.args.check_calcs == 'True' and 
-                print('\nRerunning unconverged calculations')
-                self.rerun_calcs(rerun)
+#                print('\nRerunning unconverged calculations')
+                self.update_rerun(rerun)
+                if parallel == 1:
+                    self.rerun_calcs(rerun)
         
         # make new surfaces based on manager_control.txt file, add new calcs to add_inputs
         if self.args.make_new == 'True':
@@ -1090,7 +1144,17 @@ class jdft_manager():
         if self.args.run_new == 'True' and len(new_folders + add_inputs + run_new) > 0:
             if len(run_new) > 0:
                 self.update_run_new(run_new)
-            self.run_new_calcs(new_folders + add_inputs + run_new)
+            if parallel == 1:
+                self.run_new_calcs(new_folders + add_inputs + run_new)
+        
+        all_roots = []
+        if self.args.run_new == 'True':
+            all_roots += new_folders + add_inputs + run_new
+        if self.args.rerun_unconverged == 'True':
+            all_roots += rerun
+        if parallel > 1:
+            self.run_all_parallel(all_roots)
+            
         print('----- Done -----\n\n')
 
 
@@ -1105,7 +1169,10 @@ try:
 except:
     home_dir = '/home/nicksingstock'
 
-core_architecture = 36
+try:
+    core_architecture = os.environ['CORES_PER_NODE']
+except:
+    core_architecture = 36
 defaults_folder = os.path.join(home_dir, 'bin/JDFTx_Tools/manager/defaults/')
 run_command = 'python '+ os.path.join(home_dir, 'bin/JDFTx_Tools/sub_JDFTx.py')
 
@@ -1130,14 +1197,14 @@ DONE    9. setup NEB calcs and manage
         the calculation setup and initial structure. Update each run. 
     11. setup function that checks whether managed has changed that may cause errors
     12. setup function to check that different inputs files are compatible
-    13. Add ability to combine multiple calcs into one node for job submission efficiency
-    14. Run DOS SP calcs on converged structures (if user requested)
+DONE    13. Add ability to combine multiple calcs into one node for job submission efficiency
+*    14. Run DOS SP calcs on converged structures (if user requested)
     15. Make ref_mols a separate file so user can edit
     16. Optional pre-NEB image SP calcs for wfns.
-    17. Add NEB building from any two directories (with warnings/errors about structure diffs)
+*    17. Add NEB building from any two directories (with warnings/errors about structure diffs)
         to enable non-adsorption barriers to be studied
     18. Add back in ability to run two+ adsorbates as a single calculation with "_" separator
-    19. Add charge density analysis using Aziz script on Summit. Oxi-states available in out file.
+*    19. Add charge density analysis using Aziz script on Summit. Oxi-states available in out file.
     
 DONE   FIX ERROR: -r jobs are running with resart False so they keep starting from POSCAR
 
