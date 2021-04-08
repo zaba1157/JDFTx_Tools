@@ -27,6 +27,10 @@ reference_molecules = {'H': {'refs': ['H2'], 'coeffs': [0.5]},
                        'OCO': {'refs': ['CO2'], 'coeffs': [1]},
                        'OH': {'refs': ['O','H'], 'coeffs': [1,1]},
                        'OOH': {'refs': ['O','H'], 'coeffs': [2,1]},
+                       'S2': {'refs': ['S8'], 'coeffs': [0.25]},
+                       'S4': {'refs': ['S8'], 'coeffs': [0.5]},
+                       'S6': {'refs': ['S8'], 'coeffs': [0.75]},
+                       'S8': {'refs': ['S8'], 'coeffs': [1]},
                        }
 
 class jdft_manager():
