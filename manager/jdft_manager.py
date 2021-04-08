@@ -229,6 +229,8 @@ class jdft_manager():
         parser.add_argument('-p', '--parallel', help='Runs multiple calcs together on a single node. Input'+
                             ' should be max number (int) of calcs to run together per node. Default 1.',
                             type=int, default=1)
+        parser.add_argument('-b', '--backup', help='Whether to backup calcs folder. Default False.',
+                            type=str, default='False')
         self.args = parser.parse_args()
     
     def __get_run_cmd__(self):
@@ -1071,7 +1073,24 @@ class jdft_manager():
         for shell in shells:
             os.system('sbatch '+shell)
         os.chdir(self.cwd)
-        
+    
+    def backup_calcs(self):
+        if not os.path.exists(backup_folder):
+            os.mkdir(backup_folder)
+        # scan all sub_dirs in calcs and copy to backup_folder   
+        for root, folders, files in os.walk(calc_folder):
+            # copy folder over
+            for i, sub in enumerate(root.split(os.sep)):
+                if i == 0: continue
+                sub_folder = os.sep.join(root.split(os.sep)[1:i+1])
+                backup_f = os.path.join(backup_folder, sub_folder)
+                if not os.path.exists(backup_f):
+                    os.mkdir(backup_f)
+            # copy over files
+            for file in files_to_backup:
+                if file in files:
+                    self.run('cp '+os.path.join(root, file)+' '+os.path.join(backup_f, file))
+        print('\nCalculation files backed up successfully.')
         
     def manager(self):
         '''
@@ -1155,6 +1174,9 @@ class jdft_manager():
         if parallel > 1:
             self.run_all_parallel(all_roots)
             
+        if self.args.backup == 'True':
+            self.backup_calcs()
+            
         print('----- Done -----\n\n')
 
 
@@ -1163,6 +1185,7 @@ calc_folder = 'calcs/'
 molecule_folder = 'molecules/'
 results_folder = 'results/'
 inputs_folder = 'inputs/'
+backup_folder = 'backup/'
 
 try:
     home_dir = os.environ['JDFTx_home']
@@ -1176,6 +1199,7 @@ except:
 defaults_folder = os.path.join(home_dir, 'bin/JDFTx_Tools/manager/defaults/')
 run_command = 'python '+ os.path.join(home_dir, 'bin/JDFTx_Tools/sub_JDFTx.py')
 
+files_to_backup = ['POSCAR','CONTCAR','out','inputs','opt.log','Ecomponents']
 
 '''
 TODOs:
