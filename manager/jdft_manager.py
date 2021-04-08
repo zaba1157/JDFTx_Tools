@@ -1193,7 +1193,7 @@ except:
     home_dir = '/home/nicksingstock'
 
 try:
-    core_architecture = os.environ['CORES_PER_NODE']
+    core_architecture = int(os.environ['CORES_PER_NODE'])
 except:
     core_architecture = 36
 defaults_folder = os.path.join(home_dir, 'bin/JDFTx_Tools/manager/defaults/')
