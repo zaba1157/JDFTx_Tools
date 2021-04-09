@@ -162,12 +162,17 @@ if __name__ == '__main__':
     if args.short_recursive == 'True':
         recursive_restart()
 
+    # new safety check line
+    outfile = args.outfile
+    if args.outfile == 'out':
+        outfile = 'python_out'
+
     # Multiple write options depending on computer
     if comp == 'Eagle':
-        write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,
+        write(args.nodes,args.cores,args.time,outfile,args.allocation,args.qos,
               script, args.short_recursive)
     elif comp == 'Bridges2':
-        write_bridges(args.nodes,args.cores,args.time,args.outfile,args.partition,args.qos,
+        write_bridges(args.nodes,args.cores,args.time,outfile,args.partition,args.qos,
                       script, args.short_recursive)
     
     os.system('sbatch submit.sh')
