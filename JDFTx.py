@@ -197,7 +197,7 @@ class JDFTx(Calculator):
                         #inputfile += '%s %s\n' % (cmd, str(v))
                         vc = v
                         if '\\\\\\n' in v:
-                                print(v)
+                                #print(v)
                                 vc = '\\\n'.join(v.split('\\\\\\n'))
                                 #vc = ''
                                 #tmp = v.split('\\\n')
@@ -206,13 +206,13 @@ class JDFTx(Calculator):
                                 #                vc = tmpi + '\\\n'
                                 #        else:
                                 #                vc = tmpi
-                                print(vc)
+                                #print(vc)
                         #vc = '\\'.join(v.split('\\'))
                         #vc = '\n'.join(vc.split('\n'))
                         inputfile += cmd + ' ' 
                         inputfile += vc + '\n'
-                print('\nBug checking\n\n')
-                print(inputfile)
+                #print('\nBug checking\n\n')
+                #print(inputfile)
 
                 # Add ion info
                 atomPos = [x / Bohr for x in list(atoms.get_positions())]  # Also convert to bohr
