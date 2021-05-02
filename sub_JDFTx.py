@@ -172,13 +172,8 @@ if __name__ == '__main__':
         outfile = 'python_out'
 
     # Multiple write options depending on computer
-<<<<<<< HEAD
     if comp == 'Eagle' or comp == 'Summit':
-        write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,
-=======
-    if comp == 'Eagle':
-        write(args.nodes,args.cores,args.time,outfile,args.allocation,args.qos,
->>>>>>> 504392189fd678c21f819dc70b5604dde9467680
+        write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,		
               script, args.short_recursive)
     elif comp == 'Bridges2':
         write_bridges(args.nodes,args.cores,args.time,outfile,args.partition,args.qos,
