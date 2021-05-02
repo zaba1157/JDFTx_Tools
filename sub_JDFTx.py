@@ -46,13 +46,17 @@ def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
         writelines+='#SBATCH --account='+os.environ['JDFTx_allocation']+'\n'
     else:
         writelines+='#SBATCH --account='+alloc+'\n'
-    if qos=='high':
+    if qos=='high' and comp == 'Eagle':
         writelines+='#SBATCH --qos=high'+'\n'
 
-    if time == 1:
+    if time == 1 and comp == 'Eagle':
         writelines+='#SBATCH --partition=debug\n'
-    
+    if comp == 'Summit':
+        writelines+='#SBATCH --partition shas\n'    
     writelines+='\nexport JDFTx_NUM_PROCS='+str(np)+'\n'
+    if comp == 'Summit':
+        writelines+='SLURM_EXPORT_ENV=ALL\n'
+
     #writelines+='module load comp-intel/2020.1.217 intel-mpi/2020.1.217 cuda/10.2.89 vasp/6.1.1 mkl/2020.1.217 gsl/2.5/gcc openmpi/4.0.4/gcc-8.4.0 gcc/7.4.0'+'\n\n'
     writelines+='module load '+modules+'\n\n'
 
@@ -142,7 +146,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--nodes', help='Number of nodes',
                         type=int, default=1)
     parser.add_argument('-c', '--cores', help='Number of cores',
-                        type=int, default=36)
+                        type=int, default=os.environ['CORES_PER_NODE'])
     parser.add_argument('-t', '--time', help='Time limit',
                         type=int, default=48)
     parser.add_argument('-o', '--outfile', help='Outfile name',
@@ -163,7 +167,7 @@ if __name__ == '__main__':
         recursive_restart()
 
     # Multiple write options depending on computer
-    if comp == 'Eagle':
+    if comp == 'Eagle' or comp == 'Summit':
         write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,
               script, args.short_recursive)
     elif comp == 'Bridges2':

@@ -111,6 +111,78 @@ class jdft_manager():
             steps.append(step_dic)
         return steps
     
+    def read_outfile(self, folder):
+        try:
+            with open(os.path.join(folder, 'out'), 'r', errors='ignore') as f:
+                out_text = f.read()
+        except:
+            print('Error reading out file.')
+            return False
+        site_data = {}
+        record_forces, record_ions = False, False
+        el_counter = 0
+        net_oxidation = 0
+        net_mag = 0
+        for line in out_text.split('\n'):
+            if 'Ionic positions in cartesian coordinates' in line:
+                record_ions = True
+                # reset net oxidation states and magnetization for new group
+                net_oxidation = 0
+                net_mag = 0
+                continue
+            if record_ions:
+                if 'ion' in line:
+                    atom, xpos, ypos, zpos = line.split()[1:5]
+                    site_data[str(el_counter)] = {'atom': atom, 'positions': [xpos, ypos, zpos]}
+                    el_counter += 1
+                else: #if line == '' or 'ion' not in line:
+                    record_ions = False
+                    el_counter = 0
+            if 'Forces in Cartesian coordinates' in line:
+                record_forces = True
+                continue
+            if record_forces:
+                if 'force' in line:
+                    atom, xfor, yfor, zfor = line.split()[1:5]
+                    if atom != site_data[str(el_counter)]['atom']:
+                        print('Error reading out file.')
+                        return False
+                    site_data[str(el_counter)]['forces'] =  [xfor, yfor, zfor]
+                    el_counter += 1
+                else: #if line == '' or 'force' not in line:
+                    record_forces = False
+                    el_counter = 0
+            if 'magnetic-moments' in line:
+                el = line.split()[2]
+                mags = line.split()[3:]
+                mag_counter = 0
+                for site,sv in site_data.items():
+                    if sv['atom'] == el:
+                        try:
+                            site_data[site]['mag_mom'] = float(mags[mag_counter])
+                            net_mag += float(mags[mag_counter])
+                            mag_counter += 1
+                        except:
+                            print('Error reading magnetic moments')
+                            return False
+            if 'oxidation-state' in line:
+                el = line.split()[2]
+                oxis = line.split()[3:]
+                oxi_counter = 0
+                for site,sv in site_data.items():
+                    if sv['atom'] == el:
+                        try:
+                            site_data[site]['oxi_state'] = float(oxis[oxi_counter])
+                            net_oxidation += float(oxis[oxi_counter])
+                            oxi_counter += 1
+                        except:
+                            print('Error reading oxidation states')
+                            return False
+        print('Site data read')
+#        site_data['net_oxidation'] = net_oxidation
+#        site_data['net_magnetization'] = net_mag
+        return site_data, net_oxidation, net_mag
+    
     def read_contcar(self, folder):
         st = Structure.from_file(os.path.join(folder, 'CONTCAR'))
         return st.as_dict()
@@ -268,6 +340,7 @@ class jdft_manager():
         add_inputs = []
         run_new = []
         rerun = []
+        running_parallel = self.get_parallel_running()
         if 'converged' not in all_data:
             all_data['converged'] = []
         if verbose: print('\n----- Scanning Through Calculations -----')
@@ -276,6 +349,8 @@ class jdft_manager():
                 continue
             if 'neb' in root and len(root.split(os.sep)) >= 7:
                 # ignore neb subdirs
+                continue
+            if '__' in root:
                 continue
             if verbose: print('\nPOSCAR/inputs found at:', root)
             if root in all_data['converged']:
@@ -427,6 +502,7 @@ class jdft_manager():
     
     def read_data(self, folder):
         # currently reads inputs, opt_log for energies, and CONTCAR. Also checks convergence based on forces
+        # reads out file for oxidation states and magentic moments
         inputs = self.read_inputs(folder)
         opt_steps = self.read_optlog(folder)
         if opt_steps == False:
@@ -440,11 +516,21 @@ class jdft_manager():
         contcar = 'None'
         if 'CONTCAR' in os.listdir(folder):
             contcar = self.read_contcar(folder)
+        out_sites = self.read_outfile(folder)
+        if out_sites == False:
+            sites = {}
+            net_oxi = 'None'
+            net_mag = 'None'
+        else:
+            sites = out_sites[0]
+            net_oxi = out_sites[1]
+            net_mag = out_sites[2]
         return {'opt': opt_steps,
                 'inputs': inputs,
                 'converged': conv,
                 'final_energy': 'None' if not conv else opt_steps[-1]['energy'],
-                'contcar': contcar}
+                'contcar': contcar,
+                'site_data': sites, 'net_oxidation': net_oxi, 'net_magmom': net_mag}
     
     def get_neb_data(self, folder, bias):
         # reads neb folder and returns data as a dictionary
@@ -1037,6 +1123,13 @@ class jdft_manager():
             os.chdir(self.cwd)
             print('Calculation run: '+self.get_job_name(root))
     
+    def get_parallel_running(self): # TODO: finish this so that -p jobs don't run over eachother
+        shell_folder = 'tmp_parallel'
+        if not os.path.exists(shell_folder):
+            return []
+        if 'running.txt' not in os.listdir(shell_folder):
+            return []
+    
     def run_all_parallel(self, roots):
         '''
         This function handles submitting clusters of calculations together on single nodes
@@ -1044,7 +1137,7 @@ class jdft_manager():
         print('\n----- Running All Calcs in Parallel -----\n')
         
         max_per_node = self.args.parallel
-        total_calcs = len(roots)
+        total_calcs = len(roots) 
         if total_calcs < max_per_node:
             max_per_node = total_calcs
         cores_per_node = core_architecture
@@ -1062,6 +1155,7 @@ class jdft_manager():
         
         # write calcs for each node to tmp_parallel folder
         for i in range(total_nodes):
+            # TODO: set cores per calc to update based on number of calcs in sub_roots
             sub_roots = roots[i*max_per_node:(i+1)*max_per_node]
             out_file = 'submit_'+str(i)
             write_parallel(sub_roots, self.cwd, cores_per_node, cores_per_calc, self.args.run_time, out_file, 
