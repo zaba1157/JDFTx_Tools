@@ -11,6 +11,7 @@ from adsorbate_helper import save_structures, add_adsorbates, data_analysis, set
 reference_molecules = {'H': {'refs': ['H2'], 'coeffs': [0.5]},
                        'H2': {'refs': ['H2'], 'coeffs': [1]},
                        'H2O': {'refs': ['H2O'], 'coeffs': [1]},
+                       'H3O':{'refs': ['H2O', 'H'], 'coeffs': [1, 1]}, # TODO: run calc of this above Pt(111)
                        'O': {'refs': ['H2O','H2'], 'coeffs': [1,-1]},
                        'CO2': {'refs': ['CO2'], 'coeffs': [1]},
                        'CO': {'refs': ['CO2','O'], 'coeffs': [1,-1]},
@@ -178,7 +179,7 @@ class jdft_manager():
                         except:
                             print('Error reading oxidation states')
                             return False
-        print('Site data read')
+#        print('Site data read')
 #        site_data['net_oxidation'] = net_oxidation
 #        site_data['net_magnetization'] = net_mag
         return site_data, net_oxidation, net_mag
@@ -193,7 +194,7 @@ class jdft_manager():
     def check_convergence(self, inputs, steps):
         force = self.get_force(steps)
         fmax = float(inputs['fmax'])
-        if force < fmax:
+        if force <= fmax:
             return True
         return False
     
@@ -558,7 +559,7 @@ class jdft_manager():
                 'final_energy': 'None' if not conv else opt_steps[-1]['energy'],
                 'images': images}
     
-    def analyze_data(self, data):
+    def analyze_data(self, data, ref_mols):
         '''
         Main function for analyzing converged data from scan_calcs function
         Functions:
@@ -566,7 +567,7 @@ class jdft_manager():
                 - binding energies mapped over biases for each system
                 - NEB barriers mapped over biases for each NEB system
         '''
-#        print('Data analysis not yet available. Please contact Nick to add.')
+        print('Data analysis not yet available. Please contact Nick to add.')
         return data_analysis(data)
     
     def rerun_calcs(self, rerun):
@@ -583,10 +584,33 @@ class jdft_manager():
     def update_rerun(self, rerun):
         for root in rerun:
             os.chdir(root)
+            self.failed_rerun_fixer(auto_delete = False)
             inputs = self.read_inputs('./')
             inputs['restart'] = 'True'
             self.write_inputs(inputs, './')
             os.chdir(self.cwd)
+    
+    def failed_rerun_fixer(self, auto_delete = False):
+        '''
+        Tries to fix errors that show up when rerunning a calc that previously failed.
+        Current fixes:
+            1) Length of fillings is incorrect
+                Fix: delete fillings and ??? (just fillings doesn't seem to fix)
+        '''
+        with open('out','r') as f:
+            outf = f.read()
+        end_lines = outf.split('\n')[-10:]
+        if 'Failed.' not in end_lines:
+            return True
+        for line in end_lines:
+            # fillings is wrong size, delete
+            if "Length of 'fillings' was" in line:
+                if not auto_delete:
+                    print('fillings is incorrect size, remove fillings and ???')
+                else:
+                    self.run('rm fillings')
+        return True
+                
     
     def get_job_name(self, root):
         return '-'.join(root.split(os.sep)[1:])
@@ -915,6 +939,11 @@ class jdft_manager():
         assert 'fluid' in inputs, 'ERROR: fluid tag must be in inputs files to run biases!'
         if inputs['fluid'] == 'LinearPCM' and 'pcm-variant' in inputs and inputs['pcm-variant'] == 'CANDLE':
             Vref = 4.66
+        elif inputs['fluid'] == 'LinearPCM' and 'pcm-variant' in inputs and inputs['pcm-variant'] == 'GLSSA13':
+            Vref = 4.68
+        elif inputs['fluid'] == 'NonlinearPCM' and ('pcm-variant' in inputs 
+                   and inputs['pcm-variant'] == 'GLSSA13'):
+            Vref = 4.62
         elif inputs['fluid'] == 'SaLSA':
             Vref = 4.54
         elif inputs['fluid'] == 'ClassicalDFT':
