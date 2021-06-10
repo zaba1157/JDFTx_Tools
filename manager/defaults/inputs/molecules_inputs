@@ -1,4 +1,4 @@
-kpoint-folding 5 5 1
+kpoint-folding 7 7 7
 kpoint 0 0 0 1
 elec-cutoff 20
 elec-smearing Fermi 0.001
@@ -9,6 +9,8 @@ latt-move-scale 0 0 0
 fluid LinearPCM
 pcm-variant CANDLE
 fluid-solvent H2O
+#van-der-waals
+
 fluid-cation Na+ 0.5
 fluid-anion F- 0.5
 
@@ -19,8 +21,8 @@ dump End Dtot BoundCharge
 dump End State
 dump End Forces
 dump End Ecomponents
-dump Electronic State
-dump Fluid State
+#dump Electronic State
+#dump Fluid State
 
 logfile ptout
 pseudos SG15

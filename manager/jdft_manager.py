@@ -6,12 +6,17 @@ import subprocess
 import json
 from pymatgen.core.structure import Structure
 import numpy as np
-from adsorbate_helper import save_structures, add_adsorbates, data_analysis, setup_neb, write_parallel
+from adsorbate_helper import save_structures, add_adsorbates, data_analysis, write_parallel, minimum_movement_strs
 
 reference_molecules = {'H': {'refs': ['H2'], 'coeffs': [0.5]},
                        'H2': {'refs': ['H2'], 'coeffs': [1]},
+#                       'H2_des': {'refs': ['H2'], 'coeffs': [1]},
                        'H2O': {'refs': ['H2O'], 'coeffs': [1]},
-                       'H3O':{'refs': ['H2O', 'H'], 'coeffs': [1, 1]}, # TODO: run calc of this above Pt(111)
+                       'H3O':{'refs': ['H2O', 'H'], 'coeffs': [1, 1]}, 
+#                       'H3O_des':{'refs': ['H2O', 'H'], 'coeffs': [1, 1]},
+                       'H_H2O':{'refs': ['H2O', 'H'], 'coeffs': [1, 1]},
+                       'H_H3O':{'refs': ['H2O', 'H2'], 'coeffs': [1, 1]},
+                       'H2_H2O':{'refs': ['H2O', 'H2'], 'coeffs': [1, 1]},
                        'O': {'refs': ['H2O','H2'], 'coeffs': [1,-1]},
                        'CO2': {'refs': ['CO2'], 'coeffs': [1]},
                        'CO': {'refs': ['CO2','O'], 'coeffs': [1,-1]},
@@ -21,6 +26,8 @@ reference_molecules = {'H': {'refs': ['H2'], 'coeffs': [0.5]},
                        'N': {'refs': ['N2'], 'coeffs': [0.5]},
                        'N2': {'refs': ['N2'], 'coeffs': [1]},
                        'N2H': {'refs': ['N2','H'], 'coeffs': [1,1]},
+                       'NNH2': {'refs': ['N2','H'], 'coeffs': [1,2]},
+                       'NNH3': {'refs': ['N2','H'], 'coeffs': [1,3]},
                        'NH': {'refs': ['N2','H'], 'coeffs': [0.5,1]},
                        'NH2': {'refs': ['N2','H'], 'coeffs': [0.5,2]},
                        'NH3': {'refs': ['N2','H'], 'coeffs': [0.5,3]},
@@ -32,7 +39,11 @@ reference_molecules = {'H': {'refs': ['H2'], 'coeffs': [0.5]},
                        'S4': {'refs': ['S8'], 'coeffs': [0.5]},
                        'S6': {'refs': ['S8'], 'coeffs': [0.75]},
                        'S8': {'refs': ['S8'], 'coeffs': [1]},
+                       'MgS8': {'refs': ['S8'], 'coeffs': [1]},
+                       'AlS8': {'refs': ['S8'], 'coeffs': [1]},
                        }
+
+hartree_to_ev = 27.2114
 
 class jdft_manager():
     '''
@@ -90,13 +101,18 @@ class jdft_manager():
         with open(os.path.join(folder, 'inputs'), 'w') as f:
             f.write(text)
     
-    def read_optlog(self, folder):
+    def read_optlog(self, folder, file = 'opt.log', verbose = True):
         try:
-            with open(os.path.join(folder, 'opt.log'), 'r') as f:
+            with open(os.path.join(folder, file), 'r') as f:
                 opt_text = f.read()
         except:
+            print('ERROR: Cannot read opt.log file')
             return False
+        if len(opt_text) == 0:
+            # no data yet
+            return False #[{'energy': 'None', 'force': 'None', 'step': 0}]
         steps = []
+        not_warned = True
         ionic_step = 0
         for i, line in enumerate(opt_text.split('\n')):
             if ' Step ' in line or '*Force-consistent' in line:
@@ -105,14 +121,31 @@ class jdft_manager():
                 continue
             var = line.split()
             step_dic = {'opt_method': var[0][:-1],
-                        'energy': float(var[3][:-1]),
+                        'energy': float(var[3][:-1]) / hartree_to_ev,
                         'force': float(var[4]),
                         'step': ionic_step}
+            if float(var[4]) > 10 and not_warned and verbose:
+                print('**** WARNING: High forces present in convergence. Check CONTCAR. ****')
+                not_warned = False
             ionic_step += 1
             steps.append(step_dic)
         return steps
     
-    def read_outfile(self, folder):
+    def read_Ecomponents(self, folder):
+        try:
+            with open(os.path.join(folder, 'Ecomponents'), 'r') as f:
+                ecomp_text = f.read()
+        except:
+            print('ERROR: Cannot read Ecomponents file')
+            return False
+        ecomp = {}
+        for line in ecomp_text.split('\n'):
+            if '----' in line or len(line) == 0:
+                continue
+            ecomp[line.split()[0]] = float(line.split()[-1])
+        return ecomp
+    
+    def read_outfile(self, folder, contcar = 'None'):
         try:
             with open(os.path.join(folder, 'out'), 'r', errors='ignore') as f:
                 out_text = f.read()
@@ -124,6 +157,11 @@ class jdft_manager():
         el_counter = 0
         net_oxidation = 0
         net_mag = 0
+        
+        if contcar != 'None':
+            ct_els = list(set([site['label'] for site in contcar['sites']]))
+            ct_counter = {el: 0 for el in ct_els}
+        
         for line in out_text.split('\n'):
             if 'Ionic positions in cartesian coordinates' in line:
                 record_ions = True
@@ -134,11 +172,33 @@ class jdft_manager():
             if record_ions:
                 if 'ion' in line:
                     atom, xpos, ypos, zpos = line.split()[1:5]
-                    site_data[str(el_counter)] = {'atom': atom, 'positions': [xpos, ypos, zpos]}
+                    site_data[str(el_counter)] = {'atom': atom}
+                    
+                    if contcar != 'None':
+                        if el_counter >= len(contcar['sites']):
+                            print('Error: different number of sites in contcar and out file.')
+                            return False
+                        try:
+                            el_index = [i for i, site in enumerate(contcar['sites']) if atom == site['label']]
+                            ct_index = el_index[ct_counter[atom]]
+                            ct_site = contcar['sites'][ct_index]
+                            ct_counter[atom] += 1
+                        except:
+                            print('Error reading out file sites.')
+                            return False
+                        site_data[str(el_counter)]['positions'] = ct_site['xyz'] 
+                        site_data[str(el_counter)]['contcar_index'] = ct_index
+                        
+                        if 'properties' in ct_site and 'selective_dynamics' in ct_site['properties']:
+                            site_data[str(el_counter)]['selective_dynamics'] = (
+                                        ct_site['properties']['selective_dynamics'])
                     el_counter += 1
                 else: #if line == '' or 'ion' not in line:
                     record_ions = False
                     el_counter = 0
+                    if contcar != 'None':
+                        ct_counter = {el: 0 for el in ct_els}
+            
             if 'Forces in Cartesian coordinates' in line:
                 record_forces = True
                 continue
@@ -148,11 +208,12 @@ class jdft_manager():
                     if atom != site_data[str(el_counter)]['atom']:
                         print('Error reading out file.')
                         return False
-                    site_data[str(el_counter)]['forces'] =  [xfor, yfor, zfor]
+                    site_data[str(el_counter)]['forces'] =  [float(xfor), float(yfor), float(zfor)]
                     el_counter += 1
                 else: #if line == '' or 'force' not in line:
                     record_forces = False
                     el_counter = 0
+            
             if 'magnetic-moments' in line:
                 el = line.split()[2]
                 mags = line.split()[3:]
@@ -249,6 +310,8 @@ class jdft_manager():
     def initialize_vars(self):
         self.calc_subfolders = ['surfs', 'molecules', 'adsorbed', 'desorbed', 'neb']
         self.data_file = os.path.join(results_folder, 'all_data.json')
+        self.default_adsorbate_distance = 2.0
+        self.default_desorbed_distance = 5.0
         
     
     def __get_user_inputs__(self):
@@ -271,8 +334,8 @@ class jdft_manager():
                             ' Default True.',type=str, default='True')
         parser.add_argument('-ads', '--add_adsorbed', help='Add all requested adsorbates to converged surfs, '
                             +'requires "make_new". Default True.',type=str, default='True')
-        parser.add_argument('-dist', '--adsorbate_distance', help='Standard distance from surface to adsorbate,'
-                            +' requires "add_adsorbed". Default 2.0',type=float, default=2.0)
+#        parser.add_argument('-dist', '--adsorbate_distance', help='Standard distance from surface to adsorbate,'
+#                            +' requires "add_adsorbed". Default 2.0',type=float, default=2.0)
         parser.add_argument('-des', '--add_desorbed', help='Add all requested desorbed calcs to converged surfs, '
                             +'requires "make_new" and "add_adsorbed". Needed for NEB. Default True.',
                             type=str, default='True')
@@ -282,6 +345,8 @@ class jdft_manager():
                             'requires "make_new". Default False.',type=str, default='True')
         parser.add_argument('-nebc', '--neb_climbing', help='If True, uses NEB climbing image. Requires'+
                             ' "make_neb". Default False.',type=str, default='False')
+        parser.add_argument('-cf', '--current_force', help='If True, displays calc forces. Default True.',
+                            type=str, default='True')
         parser.add_argument('-t', '--run_time', help='Time to run jobs. Default 48 (hours).',
                             type=int, default=48)
         parser.add_argument('-n', '--nodes', help='Nodes per job. Default 1.',
@@ -327,7 +392,7 @@ class jdft_manager():
             return 'No_bias'
         return '%.2f'%bias + 'V'
     
-    def scan_calcs(self, all_data, running_dirs, verbose = True):
+    def scan_calcs(self, all_data, running_dirs, verbose = True, force_limit = 50):
         '''
         Main function for scanning through all previously-created sub-directories
         Functions independently from manager_control
@@ -378,26 +443,32 @@ class jdft_manager():
             if len(sub_dirs) < 4:
                 if verbose: print('Not a calculation directory.')
                 continue
+            if calc_type == 'neb' and len(sub_dirs) > 5:
+                print('Skipping NEB sub-directory.')
+                continue
             if 'inputs' not in files:
                 add_inputs.append(root)
                 if verbose: print('Adding inputs.')
                 continue
-            if 'CONTCAR' not in files and calc_type != 'neb':
+            if 'CONTCAR' not in files and calc_type not in ['neb']:
                 run_new.append(root)
                 if verbose and self.args.run_new == 'True': print('Running unstarted job.')
-                continue
-            
-            if calc_type == 'neb' and len(sub_dirs) > 6:
-                print('BUG CHECKING: this is an neb subdir: ' + root)
                 continue
             
             # read calc data at root
             if calc_type not in ['neb']:
                 data = self.read_data(root)
+                cf = '%.3f'%data['current_force'] if data['current_force'] != 'None' else 'None'
+                skip_high_forces = (False if (data['current_force'] == 'None' or 
+                                              data['current_force'] < force_limit) else True)
             
             # save molecule data
             if calc_type == 'molecules':
-                if verbose: print('Molecule calc read.')
+                if verbose: 
+                    if self.args.current_force == 'True': 
+                        print('Molecule calc read (force='+cf+')')
+                    else:
+                        print('Molecule calc read.')
                 mol_name = sub_dirs[2]
                 bias_str = sub_dirs[3]
                 bias = self.get_bias(bias_str)
@@ -409,13 +480,18 @@ class jdft_manager():
                     all_data['converged'].append(root)
                     if verbose: print('Molecule calc converged.')
                 else:
-                    rerun.append(root)
-                    if verbose: print('Molecule calc not converged. Adding to rerun.')
+                    if not skip_high_forces: 
+                        rerun.append(root)
+                        if verbose: print('Molecule calc not converged. Adding to rerun.')
                 continue
             
             # save surface data
             elif calc_type == 'surfs':
-                if verbose: print('Surface calc read.')
+                if verbose: 
+                    if self.args.current_force == 'True': 
+                        print('Surface calc read (force='+cf+')')
+                    else:
+                        print('Surface calc read.')
                 surf_name = sub_dirs[2]
                 bias_str = sub_dirs[3]
                 bias = self.get_bias(bias_str)
@@ -429,14 +505,19 @@ class jdft_manager():
                     all_data['converged'].append(root)
                     if verbose: print('Surface calc converged.')
                 else:
-                    rerun.append(root)
-                    if verbose: print('Surface calc not converged. Adding to rerun.')
+                    if not skip_high_forces: 
+                        rerun.append(root)
+                        if verbose: print('Surface calc not converged. Adding to rerun.')
                 continue
             
             # save adsorbate and desorbed state calcs
             elif calc_type in ['adsorbed', 'desorbed']:
                 # dic = surf: calc_type(s): mol: biases: configs: data. no configs for desorbed
-                if verbose: print('Adsorbed/Desorbed calc read.')
+                if verbose: 
+                    if self.args.current_force == 'True': 
+                        print('Adsorbed/Desorbed calc read (force='+cf+')')
+                    else:
+                        print('Adsorbed/Desorbed calc read.')
                 surf_name = sub_dirs[2]
                 mol_name = sub_dirs[3]
                 bias_str = sub_dirs[4]
@@ -467,37 +548,51 @@ class jdft_manager():
                         all_data['converged'].append(root)
                         if verbose: print('Adsorbed/Desorbed calc converged.')
                     else:
-                        rerun.append(root)
-                        if verbose: print('Adsorbed/Desorbed calc not converged. Adding to rerun.')
+                        if not skip_high_forces: 
+                            rerun.append(root)
+                            if verbose: print('Adsorbed/Desorbed calc not converged. Adding to rerun.')
                 else:
                     print('Surface: '+surf_name+' at bias '+bias_str+
                           ' must be converged before adsorbed/desorbed can be saved.')
+                    if not data['converged']:
+                        if not skip_high_forces: 
+                            rerun.append(root)
+                            if verbose: print('Adsorbed/Desorbed calc not converged. Adding to rerun.')
                 continue
                     
             elif calc_type == 'neb':
+                # calc/neb/surf/path_name(Path_#-start-finish)/bias/data
                 if verbose: print('NEB calc read.')
+#                continue
                 # dic = surf: 'neb': mol: bias: path:
                 surf_name = sub_dirs[2]
-                mol_name = sub_dirs[3]
+                path_name = sub_dirs[3]
                 bias_str = sub_dirs[4]
-                neb_path = sub_dirs[5]
                 bias = self.get_bias(bias_str)
                 if surf_name not in all_data or 'surf' not in all_data[surf_name]:
+                    print('WARNING: Surface does not exist with same name, nowhere to save neb calc.')
                     continue
                 if calc_type not in all_data[surf_name]:
                     all_data[surf_name][calc_type] = {}
-                if mol_name not in all_data[surf_name][calc_type]:
-                    all_data[surf_name][calc_type][mol_name] = {}
-                if bias_str not in all_data[surf_name][calc_type][mol_name]:
-                    all_data[surf_name][calc_type][mol_name][bias_str] = {}
+                if path_name not in all_data[surf_name][calc_type]:
+                    all_data[surf_name][calc_type][path_name] = {}
+                if bias_str not in all_data[surf_name][calc_type][path_name]:
+                    all_data[surf_name][calc_type][path_name][bias_str] = {}
                 neb_data = self.get_neb_data(root, bias)
-                all_data[surf_name][calc_type][mol_name][bias_str][neb_path] = neb_data
+                all_data[surf_name][calc_type][path_name][bias_str] = neb_data
                 if neb_data['converged']:
-                    print('NEB calc for '+surf_name+' and '+mol_name+' at '+bias_str+' converged.')
+                    print('NEB path '+path_name+' for '+surf_name+' at '+bias_str+' converged.')
                 else:
-                    print('NEB calc for '+surf_name+' and '+mol_name+' at '+bias_str+' not converged.'
-                          +' Added to rerun.')
-                    rerun.append(root)
+#                    print('NEB path '+path_name+' for '+surf_name+' at '+bias_str+' not converged.'
+#                          +' Added to rerun.')
+                    if neb_data['opt'] != 'None' and neb_data['opt'][-1]['force'] < force_limit:
+                        print('NEB path '+path_name+' for '+surf_name+' at '+bias_str+' not converged.'
+                              +' Added to rerun.')
+                        rerun.append(root)
+                    else:
+                        neb_force = '%.3f'%(neb_data['opt'][-1]['force']) if neb_data['opt'] != 'None' else 'None'
+                        print('NEB path '+path_name+' for '+surf_name+' at '+bias_str+' not converged.'
+                              +' Skipping due to high forces ('+neb_force+')')
                 continue
         return all_data, add_inputs, rerun, run_new
     
@@ -506,18 +601,19 @@ class jdft_manager():
         # reads out file for oxidation states and magentic moments
         inputs = self.read_inputs(folder)
         opt_steps = self.read_optlog(folder)
-        if opt_steps == False:
+        ecomp = self.read_Ecomponents(folder)
+        if opt_steps == False or ecomp == False:
             return {'opt': 'None', 'inputs': inputs, 'converged': False,
-                    'final_energy': 'None', 'contcar': 'None'}
+                    'final_energy': 'None', 'contcar': 'None', 'current_force': 'None'}
         # check if calc has high forces
         if opt_steps[-1]['force'] > 10:
-            print('WARNING: High forces (> 10) in current step! May be divergent.')
+            print('**** WARNING: High forces (> 10) in current step! May be divergent. ****')
         # check for convergence
         conv = self.check_convergence(inputs, opt_steps)
         contcar = 'None'
         if 'CONTCAR' in os.listdir(folder):
             contcar = self.read_contcar(folder)
-        out_sites = self.read_outfile(folder)
+        out_sites = self.read_outfile(folder, contcar)
         if out_sites == False:
             sites = {}
             net_oxi = 'None'
@@ -526,38 +622,50 @@ class jdft_manager():
             sites = out_sites[0]
             net_oxi = out_sites[1]
             net_mag = out_sites[2]
-        return {'opt': opt_steps,
-                'inputs': inputs,
-                'converged': conv,
+        return {'opt': opt_steps, 'current_force': opt_steps[-1]['force'],
+                'inputs': inputs, 'Ecomponents': ecomp, 
+                'Ecomp_energy': ecomp['F'] if 'F' in ecomp else (ecomp['G'] if 'G' in ecomp else 'None'),
+                'converged': conv, 'contcar': contcar,
                 'final_energy': 'None' if not conv else opt_steps[-1]['energy'],
-                'contcar': contcar,
                 'site_data': sites, 'net_oxidation': net_oxi, 'net_magmom': net_mag}
     
     def get_neb_data(self, folder, bias):
         # reads neb folder and returns data as a dictionary
         inputs = self.read_inputs(folder)
-        opt_steps = self.read_optlog(folder)
+        opt_steps = self.read_optlog(folder, 'neb.log')
         if opt_steps == False:
             return {'opt': 'None', 'inputs': inputs, 'converged': False,
                     'final_energy': 'None', 'images': {}}
         # check if calc has high forces
         if opt_steps[-1]['force'] > 10:
-            print('WARNING: High forces (> 10) in current step! May be divergent.')
+            print('**** WARNING: High forces (> 10) in current step! May be divergent. ****')
         # check for convergence
         conv = self.check_convergence(inputs, opt_steps)
         images = {}
         for root, folders, files in os.walk(folder):
+            # look at subfolders
             if 'CONTCAR' not in files or 'opt.log' not in files:
                 continue
             image_num = root.split(os.sep)[-1]
             contcar = self.read_contcar(root)
-            energy = self.read_optlog(root)[-1]['energy']
-            images[image_num] = {'contcar': contcar, 'energy': energy}
+            ecomp = self.read_Ecomponents(root)
+            energy = ecomp['F'] if 'F' in ecomp else (ecomp['G'] if 'G' in ecomp else 'None')
+            out_sites = self.read_outfile(root, contcar)
+            if out_sites == False:
+                sites = {}
+                net_oxi = 'None'
+                net_mag = 'None'
+            else:
+                sites = out_sites[0]
+                net_oxi = out_sites[1]
+                net_mag = out_sites[2]
+            images[image_num] = {'contcar': contcar, 'energy': energy, 'Ecomponents': ecomp,
+                                 'site_data': sites, 'net_oxidation': net_oxi, 'net_magmom': net_mag}
         return {'opt': opt_steps,
                 'inputs': inputs,
                 'converged': conv,
                 'final_energy': 'None' if not conv else opt_steps[-1]['energy'],
-                'images': images}
+                'images': images, 'path_energy': {k:v['energy'] for k,v in images.items()}}
     
     def analyze_data(self, data, ref_mols):
         '''
@@ -578,42 +686,48 @@ class jdft_manager():
 #            inputs = self.read_inputs('./')
 #            inputs['restart'] = 'True'
 #            self.write_inputs(inputs, './')
+            print('Rerunning: '+self.get_job_name(root))
             self.run(self.run_cmd + ' -o '+self.get_job_name(root))
             os.chdir(self.cwd)
             
     def update_rerun(self, rerun):
         for root in rerun:
             os.chdir(root)
-            self.failed_rerun_fixer(auto_delete = False)
+            self.failed_rerun_fixer(root, auto_delete = False)
             inputs = self.read_inputs('./')
             inputs['restart'] = 'True'
             self.write_inputs(inputs, './')
             os.chdir(self.cwd)
     
-    def failed_rerun_fixer(self, auto_delete = False):
+    def failed_rerun_fixer(self, folder, auto_delete = False):
         '''
         Tries to fix errors that show up when rerunning a calc that previously failed.
         Current fixes:
             1) Length of fillings is incorrect
                 Fix: delete fillings and ??? (just fillings doesn't seem to fix)
         '''
-        with open('out','r') as f:
-            outf = f.read()
-        end_lines = outf.split('\n')[-10:]
-        if 'Failed.' not in end_lines:
-            return True
-        for line in end_lines:
-            # fillings is wrong size, delete
-            if "Length of 'fillings' was" in line:
-                if not auto_delete:
-                    print('fillings is incorrect size, remove fillings and ???')
-                else:
-                    self.run('rm fillings')
+        try:
+            with open('out', 'r', errors='ignore') as f:
+                outf = f.read()
+            end_lines = outf.split('\n')[-10:]
+            if 'Failed.' not in end_lines:
+                return True
+            for line in end_lines:
+                # fillings is wrong size, NEED TO RERUN WITHOUT SYMMETRY (kpoints changes during opt)
+                if "Length of 'fillings' was" in line:
+                    if not auto_delete:
+                        print('fillings is incorrect size, job may fail: '+folder)
+                    else:
+                        self.run('rm fillings')
+        except:
+            pass
         return True
                 
     
     def get_job_name(self, root):
-        return '-'.join(root.split(os.sep)[1:])
+        folders = root.split(os.sep)[1:]
+        folders[0] = folders[0][:3]
+        return '-'.join(folders)
     
     def make_new_calcs(self, converged):
         '''
@@ -640,25 +754,32 @@ class jdft_manager():
         return new_folders
     
     def setup_managed_calcs(self, managed, converged, ads_distance = None, 
-                            des_distance = 8, desorbed_single_point = True):
+                            desorbed_single_point = True):
         '''
         Sets up all new calculations based on inputs from manager_control.txt
         '''
+        
+        # Done: remove dependence upon No_bias calculation
+        
         if ads_distance is None:
-            ads_distance = self.args.adsorbate_distance
+            ads_distance = self.default_adsorbate_distance
         # creates new calc folders with POSCARs and inputs 
         # depends on args: add_adsorbed, add_desorbed, add_molecules, make_neb
         new_roots = []
         managed_mols = []
         # setup molecule folders in calc_folder
         if self.args.add_molecules == 'True':
-            for mol in managed['molecules']:
+            for mol, molv in managed['molecules'].items():
                 # ref_mols used for binding analysis, mol used for desorb SP calcs
-                ref_mols = self.get_ref_mols(mol) + [mol]
+                ref_mols = self.get_ref_mols(mol)
+                if 'desorb' in molv:
+                    ref_mols += [mol]
+                else:
+                    managed_mols.append(mol)
                 for ref_mol in ref_mols:
 #                    if ref_mol in managed_mols:
 #                        continue # It seems like this is taken care of by os.path.exists(bias_dir)
-                    biases = list(set(managed['molecules'][mol]['biases']))
+                    biases = list(set(molv['biases']))
                     mol_location = self.get_mol_loc(ref_mol)
                     if mol_location == False:
                         continue
@@ -698,26 +819,42 @@ class jdft_manager():
                 if root in converged:
                     continue
                 # check if root exists with POSCAR, if so it is being managed by rerun_calcs or add_inputs
-                if os.path.exists(os.path.join(root, 'POSCAR')):
+                if os.path.exists(os.path.join(root, 'POSCAR')) or os.path.exists(os.path.join(root, 'inputs')):
                     continue
                 # root does not exist yet, check on bias dependency
                 bias = v['biases'][i]
                 if type(bias) == float and bias != 0.0:
                     # bias is a non-zero voltage, ensure 0 is converged
                     zero_root = os.path.join(calc_folder, 'surfs', surf, self.get_bias_str(0.0))
-                    if zero_root not in converged:
-                        # 0 V not yet converged! 
+                    if zero_root in converged:
+                        # upgrade from 0 V (which exists!)
+                        self.upgrade_calc(root, zero_root, bias, v['tags'] if 'tags' in v else [])
+                        new_roots.append(root)
+                    elif 0.0 not in v['biases']:
+                        # 0.0 not requested, run directly 
+                        good_setup = self.make_calc(calc_folder, surf, root, v, bias)
+                        if good_setup:
+                            new_roots.append(root)
                         continue
-                    # upgrade from 0 V (which exists!)
-                    self.upgrade_calc(root, zero_root, bias, v['tags'] if 'tags' in v else [])
-                    new_roots.append(root)
+                    else:
+                        # waiting for 0.0V to converge
+                        continue
                 elif bias == 0.0:
                     # bias is zero, ensure no-mu is converged
                     nm_root = os.path.join(calc_folder, 'surfs', surf, 'No_bias') 
-                    if nm_root not in converged:
+                    if nm_root in converged:
+                        # upgrade from no_bias (which exisits)
+                        self.upgrade_calc(root, nm_root, bias, v['tags'] if 'tags' in v else [])
+                        new_roots.append(root)
+                    elif 'No_bias' not in v['biases']:
+                        # No bias not requested, run directly 
+                        good_setup = self.make_calc(calc_folder, surf, root, v, bias)
+                        if good_setup:
+                            new_roots.append(root)
                         continue
-                    self.upgrade_calc(root, nm_root, bias, v['tags'] if 'tags' in v else [])
-                    new_roots.append(root)
+                    else:
+                        # waiting for No_bias to converge
+                        continue
                 elif bias == 'No_bias':
                     # initial setup of no-mu surface
                     head_root = os.path.join(calc_folder, 'surfs', surf)
@@ -739,14 +876,18 @@ class jdft_manager():
             # 2) add adsorbates to converged surfaces at same bias
             if self.args.add_adsorbed == 'True':
                 for mol, mv in v.items():
-                    if mol in ['biases','tags']:
+                    if mol in ['biases','tags','NEB']:
                         continue
                     if mol not in managed_mols:
                         print('Cannot add adsorbate, molecule '+mol+' not setup correctly.')
                         continue
                     # add each molecule requested at each bias on surface of corresponding bias
                     # mol = name of molecule to add, mv is dict with 'sites', 'biases' and 'tags' (optional)
-                    
+                    if 'ads_dist' in mv:
+                        # if listed, change ads_distance
+                        ads_dist = mv['ads_dist']
+                    else:
+                        ads_dist = ads_distance
                     # create all adsorbate roots to make
                     if 'biases' not in mv:
                         print('Error: No biases found for mol '+mol+' for surf '+surf)
@@ -766,7 +907,7 @@ class jdft_manager():
                         head_folder = os.path.join(calc_folder, 'adsorbed', surf, mol, self.get_bias_str(bias))
                         
                         # add molecule as adsorbate at all requested destinations
-                        surf_ads = add_adsorbates(st_surf, ads_dic, ads_distance = ads_distance)
+                        surf_ads = add_adsorbates(st_surf, ads_dic, ads_distance = ads_dist)
                         # save any new folders created, *** ANY EXISITING FOLDERS ARE IGNORED *** 
                         # does not use converged but has same functionality
                         # skipping earlier will miss new sites
@@ -775,6 +916,9 @@ class jdft_manager():
                         if len(save_locs) == 0:
                             continue
                         for sl in save_locs:
+                            # check if inputs is already in folder
+                            if os.path.exists(os.path.join(sl, 'inputs')):
+                                continue
                             print('Added adsorbate folder: '+sl)
                             self.run('cp '+os.path.join(inputs_folder, 'adsorbed_inputs')
                                      +' '+os.path.join(sl, 'inputs'))
@@ -791,6 +935,10 @@ class jdft_manager():
                     # is single point a good estimate?
                     if self.args.add_desorbed == 'True' and 'desorb' in mv:
                         desorb_biases = mv['desorb']
+                        if 'desorb_dist' in mv:
+                            des_dist = mv['desorb_dist']
+                        else:
+                            des_dist = self.default_desorbed_distance
                         if not os.path.exists(os.path.join(calc_folder, 'desorbed', surf)):
                             os.mkdir(os.path.join(calc_folder, 'desorbed', surf))
                         if not os.path.exists(os.path.join(calc_folder, 'desorbed', surf, mol)):
@@ -805,13 +953,16 @@ class jdft_manager():
                             st_surf = Structure.from_file(os.path.join(surf_root, 'CONTCAR'))
                             ads_dic = {mol: ['center']}
                             head_folder = os.path.join(calc_folder, 'desorbed', surf, mol, self.get_bias_str(bias))
-                            surf_ads = add_adsorbates(st_surf, ads_dic, ads_distance = des_distance,
+                            surf_ads = add_adsorbates(st_surf, ads_dic, ads_distance = des_dist,
                                                       molecules_loc = os.path.join(mol_root,'CONTCAR'))
                             save_locs = save_structures(surf_ads[mol], head_folder, skip_existing = True,
                                                         single_loc=True)
                             if len(save_locs) == 0:
                                 continue
                             for sl in save_locs:
+                                # check if inputs is already in folder
+                                if os.path.exists(os.path.join(sl, 'inputs')):
+                                    continue
                                 print('Added desorbed folder: '+sl)
                                 self.run('cp '+os.path.join(inputs_folder, 'desorbed_inputs')
                                          +' '+os.path.join(sl, 'inputs'))
@@ -825,63 +976,148 @@ class jdft_manager():
                                 self.add_tags(sl, tags)
                                 new_roots.append(sl)
                         
-                    # Create NEB calcs from converged ads. and des. calcs
-                    if self.args.make_neb == 'True' and 'NEB' in mv:
-                        # managed[surf][mol]['NEB']=[
-                        #       {'site': site, 'bias': bias, 'images': images, 'fmax': fmax} ]
-                        for neb in mv['NEB']:
-                            # add NEB folders: calcs/neb/surf/mol/bias/number/
-                            if not os.path.exists(os.path.join(calc_folder, 'neb', surf)):
-                                os.mkdir(os.path.join(calc_folder, 'neb', surf))
-                            if not os.path.exists(os.path.join(calc_folder, 'neb', surf, mol)):
-                                os.mkdir(os.path.join(calc_folder, 'neb', surf, mol))
-                            # get and check dependent dirs
-                            bias = self.get_bias_str(neb['bias'])
-                            ads_num = neb['site']#.zfill(2)
-                            ads_root = os.path.join(calc_folder, 'adsorbed', surf, mol, bias, ads_num)
-                            des_root = os.path.join(calc_folder, 'desorbed', surf, mol, bias)
-                            if ads_root not in converged or des_root not in converged:
-                                continue
-                            # both ads and des calcs are converged at same bias, setup NEB folder
-                            if not os.path.exists(os.path.join(calc_folder, 'neb', surf, mol, bias)):
-                                os.mkdir(os.path.join(calc_folder, 'neb', surf, mol, bias))
-                            neb_folder = os.path.join(calc_folder, 'neb', surf, mol, bias, ads_num)
-                            if not os.path.exists(neb_folder):
-                                os.mkdir(neb_folder)
-                            if os.path.exists(os.path.join(neb_folder, 'inputs')):
-                                # calculation is already set up
-                                continue
-                            nimages = neb['images']
+            # Create NEB calcs from converged ads. and des. calcs
+            if self.args.make_neb == 'True' and 'NEB' in v:
+                # TODO: set up neb calc from already converged path if available!  ************
+                # managed[surf]['NEB']=[
+                #       {'init': init, 'final': final, 'biases': biases, 'images': images, 
+                #       'path_name': path_name} ]
+                for neb in v['NEB']:
+                    # add NEB folders: calcs/neb/surf/path_number/bias/
+                    if not os.path.exists(os.path.join(calc_folder, 'neb', surf)):
+                        os.mkdir(os.path.join(calc_folder, 'neb', surf))
+                    # get and check dependent dirs
+                    bias_strs = [self.get_bias_str(b) for b in neb['biases']]
+                    
+                    init_path = neb['init']
+                    final_path = neb['final']
+                    images = neb['images']
+                    path_name = neb['path_name']
+                    
+                    path_folder = os.path.join(calc_folder, 'neb', surf, path_name)
+                    if not os.path.exists(path_folder):
+                        os.mkdir(path_folder)
+                        
+                    for bias_str in bias_strs:
+                        neb_dir = os.path.join(path_folder, bias_str)
+                        if os.path.exists(neb_dir):
+                            # managed by rerun, already set up
+                            continue
+                        init_bias_path = init_path.replace('BIAS',bias_str)
+                        final_bias_path = final_path.replace('BIAS',bias_str)
+                        if init_bias_path not in converged or final_bias_path not in converged:
+                            # surfaces not yet converged.
+                            continue 
+                        init_st = Structure.from_file(os.path.join(init_bias_path,'CONTCAR'))
+                        final_st = Structure.from_file(os.path.join(final_bias_path,'CONTCAR'))
+                        # fix issue with structures not having same order
+                        init_st_sort = init_st.get_sorted_structure()
+                        final_st_sort = final_st.get_sorted_structure()
+                        initst, finalst = minimum_movement_strs(init_st_sort, final_st_sort)
+                        
+                        # does not yet exist
+                        os.mkdir(neb_dir)
+                        new_init_folder = os.path.join(neb_dir, '00')
+                        os.mkdir(new_init_folder)
+                        new_final_folder = os.path.join(neb_dir, str(images+1).zfill(2))
+                        os.mkdir(new_final_folder)
+                        
+                        # copy over files
+                        for i,folder in enumerate([init_bias_path,final_bias_path]):
+                            to_folder = [new_init_folder, new_final_folder][i]
+                            for file in ['inputs','Ecomponents','opt.log','out']:
+                                cmd = 'cp '+os.path.join(folder, file)+' '+os.path.join(to_folder, file)
+                                self.run(cmd)
+                            st = [initst, finalst][i]
+                            st.to('POSCAR', os.path.join(to_folder, 'CONTCAR'))
                             
-                            neb_set = setup_neb(os.path.join(ads_root, 'CONTCAR'), 
-                                                os.path.join(des_root, 'CONTCAR'),
-                                                nimages, neb_folder)
-                            if not neb_set:
-                                print('METAERROR: Failed to correctly setup NEB directory.')
-                                continue
+                        # both final and initial folders are setup
+                        # 1) check for paths with forces < criteria, if so, copy files
+                        data_folder = None
+                        force_criteria = 3.0
+                        for p_root, p_folders, p_files in os.walk(path_folder):
+                            if 'neb.log' in p_files:
+                                opt = self.read_optlog(p_root, 'neb.log', verbose = False)
+                                if opt == False:
+                                    continue
+                                if opt[-1]['force'] < force_criteria:
+                                    data_folder = p_root
+                                    break
+                        if data_folder is not None:
+                            # copy files from other neb folder
+                            print('Copying files for NEB path from '+data_folder+' to '+neb_dir+
+                                  '. Copying wfns may take a few minutes.')
+                            for image_folder in [str(i+1).zfill(2) for i in range(images)]:
+                                from_folder = os.path.join(data_folder, image_folder)
+                                to_folder = os.path.join(neb_dir, image_folder)
+                                if not os.path.exists(to_folder):
+                                    os.mkdir(to_folder)
+                                for file in ['CONTCAR', 'wfns', 'fillings', 'fluidState']:
+                                    self.run('cp '+os.path.join(from_folder, file)+' '+
+                                             os.path.join(to_folder, file))
+                            # copy inputs
+                            cwd = os.getcwd()
+                            os.chdir(neb_dir)
+                            self.run('cp 00/inputs ./inputs')
+                            os.chdir(cwd)
+                            tags = ['restart True']
                             
-#                            # setup neb calc with Neb_Make.py
-#                            neb_make_cmd = ('Neb_Make.py '+ads_root+' '+des_root+' -i '+str(nimages)
-#                                            +' -d '+neb_folder)
-#                            if self.args.neb_climbing == 'True':
-#                                neb_make_cmd += ' -c'
-#                            self.run(neb_make_cmd)
-                            # TODO: add check that folders and files were correctly setup
-                            # all image sub_dirs should be setup! Still need to add inputs.
-                            self.run('cp '+os.path.join(inputs_folder, 'neb_inputs')
-                                     +' '+os.path.join(neb_folder, 'inputs'))
-                            # tags is a list
-                            tags = mv['tags'] if 'tags' in mv else []
-                            if 'tags' in v: tags += v['tags']
-                            tags += ['target-mu '+ ('None' if bias in ['None','none','No_bias'] 
-                                     else '%.4f' % self.get_mu(neb['bias'], self.read_inputs(neb_folder), tags))]
-                            tags += ['nimages '+str(nimages)]
-                            self.add_tags(neb_folder, tags)
-                            new_roots.append(neb_folder)
-                            print('Setup NEB folder: '+neb_folder)
-#                        print('NEB management not yet configured. Please contact Nick to add.')
+                            # update initial and final structures to match copied CONTCAR path
+                            init_st = Structure.from_file(os.path.join(neb_dir,'00','CONTCAR'))
+                            neighbor_st = Structure.from_file(os.path.join(neb_dir,'01','CONTCAR'))
+                            nst, ist = minimum_movement_strs(neighbor_st, init_st)
+                            ist.to('POSCAR', os.path.join(neb_dir,'00','CONTCAR'))
+                            final_st = Structure.from_file(os.path.join(neb_dir,
+                                                           str(images+1).zfill(2),'CONTCAR'))
+                            neighbor_st = Structure.from_file(os.path.join(neb_dir,
+                                                              str(images).zfill(2),'CONTCAR'))
+                            nst, fst = minimum_movement_strs(neighbor_st, final_st)
+                            fst.to('POSCAR', os.path.join(neb_dir,str(images+1).zfill(2),'CONTCAR'))
+                            
+                        else:
+                            # 2) setup idpp folders from scratch and add inputs for neb
+                            cwd = os.getcwd()
+                            os.chdir(neb_dir)
+                            cmd = ('idpp_nebmake.py 00/CONTCAR '+str(images+1).zfill(2)+
+                                   '/CONTCAR '+str(images)+' -idpp')
+                            self.run(cmd)
+                            self.run('cp 00/inputs ./inputs')
+                            os.chdir(cwd)
+                            tags = ['restart False']
+                        
+                        tags += ['nimages '+str(images), 'fmax 0.05', 'latt-move-scale 0 0 0']
+                        self.add_tags(neb_dir, tags)
+                        new_roots.append(neb_dir)
+                        print('Setup NEB folder: '+neb_dir)
+                                                
+#                            neb_set = setup_neb(os.path.join(ads_root, 'CONTCAR'), 
+#                                                os.path.join(des_root, 'CONTCAR'),
+#                                                nimages, neb_folder)
+
         return new_roots
     
+    def make_calc(self, calc_folder, surf, root, v, bias):
+        head_root = os.path.join(calc_folder, 'surfs', surf)
+        if not os.path.exists(os.path.join(head_root, 'POSCAR')):
+            print('POSCAR must be added to folder: '+head_root)
+            return False
+        else:
+            if not os.path.exists(root):
+                os.mkdir(root)
+            self.run('cp '+os.path.join(head_root, 'POSCAR')+' '+os.path.join(root, 'POSCAR'))
+        if not self.check_surface(os.path.join(root, 'POSCAR')):
+            return False
+        # copy inputs from inputs_folder and update based on tags
+        self.run('cp '+os.path.join(inputs_folder, 'surfs_inputs')+' '+os.path.join(root, 'inputs'))
+        if 'tags' in v:
+            tags = v['tags']
+        else:
+            tags = []
+        tags += ['target-mu '+ ('None' if bias in ['None','none','No_bias'] 
+                 else '%.4f' % self.get_mu(bias, self.read_inputs(root), tags))]
+        self.add_tags(root, tags)
+        return True
+                        
     def get_mol_loc(self, mol):
         if os.path.exists(os.path.join(molecule_folder, mol, 'POSCAR')):
             return os.path.join(molecule_folder, mol, 'POSCAR')
@@ -1041,6 +1277,11 @@ class jdft_manager():
                     managed['molecules'][mol]['biases'] += mol_bias
                 continue
             if 'Desorb:' in line:
+                # use this command to setup desorbed calculations
+                if surf is None:
+                    print('Error in manager_control: surface must be listed before Desorb')
+                    error = True
+                    continue
                 if mol is None:
                     print("Error in manager_control: molecule must be listed before Desorb")
                     error = True
@@ -1055,25 +1296,47 @@ class jdft_manager():
                     error = True
                     continue
                 managed[surf][mol]['desorb'] = desorb_bias
+                managed['molecules'][mol]['desorb'] = True
+                continue
+            if 'Dist:' in line:
+                # use this command to assign adsorbate/desorbed distance from surf
+                if surf is None:
+                    print('Error in manager_control: surface must be listed before Dist command')
+                    error = True
+                    continue
+                if mol is None:
+                    print("Error in manager_control: molecule must be listed before Dist command")
+                    error = True
+                    continue
+                mol_dist = float(line.split(':')[-1])
+                if 'desorb' in managed[surf][mol]:
+                    managed[surf][mol]['desorb_dist'] = mol_dist
+                else:
+                    managed[surf][mol]['ads_dist'] = mol_dist
                 continue
             if 'NEB:' in line:
-                if surf is None or surf_bias is None or mol is None or mol_bias is None or desorb_bias is None:
-                    print("Error in manager_control: NEB tag must be nested under a molecule "+
-                          "with Biases and Desorb")
+                # within surf, format: 
+                #       NEB: path/to/init path/to/final nimages name [biases, to, run] 
+                #       path should include 'BIAS' in place of biases 
+                if surf is None: # or surf_bias is None or mol is None or mol_bias is None or desorb_bias is None:
+                    print("Error in manager_control: NEB tag must be nested under a surface")
                     error = True
                     continue
                 try:
-                    site = line.split()[1]
-                    bias = 'No_bias' if line.split()[2] in ['None','No_bias','none'] else float(line.split()[2])
+                    init = line.split()[1]
+                    final = line.split()[2]
                     images = int(line.split()[3])
-                    fmax = float(line.split()[4])
+                    path_name = line.split()[4]
+                    biases = self.read_bias(line)
                 except:
-                    print("Error in manager_control: NEB line for mol "+mol+" entered incorrectly: "+line)
+                    print("Error in manager_control: NEB line entered incorrectly: "+line)
                     error = True
                     continue
-                if 'NEB' not in managed[surf][mol]:
-                    managed[surf][mol]['NEB'] = []
-                managed[surf][mol]['NEB'].append({'site': site, 'bias': bias, 'images': images, 'fmax': fmax})
+                if 'NEB' not in managed[surf]:
+                    managed[surf]['NEB'] = []
+                
+                managed[surf]['NEB'].append({'init': init, 'final': final,
+                       'biases': biases, 'images': images, 'path_name': path_name})
                 continue
             
         if error:
@@ -1087,7 +1350,7 @@ class jdft_manager():
             try:
                 sites[i] = int(s)
             except:
-                pass
+                sites[i] = s
         return sites
         
     def check_surface(self, file, dist = 8):
@@ -1122,6 +1385,17 @@ class jdft_manager():
                 continue
             inputs_file = calc_type + '_inputs'
             self.run('cp '+os.path.join(inputs_folder, inputs_file)+' '+os.path.join(root, 'inputs'))
+            
+            # add bias tag to inputs if needed
+            if calc_type in ['surfs','molecules','desorbed','neb']: # bias is last listed
+                bias_tag = root.split(os.sep)[-1]
+            elif calc_type in ['adsorbed']:
+                bias_tag = root.split(os.sep)[-2]
+            if bias_tag == 'No_bias':
+                continue
+            bias = self.get_bias(bias_tag)
+            tags = ['target-mu %.4f' % self.get_mu(bias, self.read_inputs(root))]
+            self.add_tags(root, tags)
     
     def get_running_jobs_dirs(self):
         p = subprocess.Popen(['squeue' ,'-o', '"%Z %T"'],   #can be user specific, add -u username 
@@ -1197,7 +1471,7 @@ class jdft_manager():
             os.system('sbatch '+shell)
         os.chdir(self.cwd)
     
-    def backup_calcs(self):
+    def backup_calcs(self, convert_contcar = False):
         if not os.path.exists(backup_folder):
             os.mkdir(backup_folder)
         # scan all sub_dirs in calcs and copy to backup_folder   
@@ -1212,6 +1486,10 @@ class jdft_manager():
             # copy over files
             for file in files_to_backup:
                 if file in files:
+                    if convert_contcar and file == 'CONTCAR':
+                        self.run('cp '+os.path.join(root, file)+' '+os.path.join(backup_f, 'POSCAR'))
+                        continue
+                    if convert_contcar and file == 'POSCAR': continue
                     self.run('cp '+os.path.join(root, file)+' '+os.path.join(backup_f, file))
         print('\nCalculation files backed up successfully.')
         
@@ -1267,6 +1545,7 @@ class jdft_manager():
                     self.rerun_calcs(rerun)
         
         # make new surfaces based on manager_control.txt file, add new calcs to add_inputs
+        new_folders = []
         if self.args.make_new == 'True':
             new_folders = self.make_new_calcs(all_data['converged'])
             if new_folders == False:
@@ -1322,7 +1601,7 @@ except:
 defaults_folder = os.path.join(home_dir, 'bin/JDFTx_Tools/manager/defaults/')
 run_command = 'python '+ os.path.join(home_dir, 'bin/JDFTx_Tools/sub_JDFTx.py')
 
-files_to_backup = ['POSCAR','CONTCAR','out','inputs','opt.log','Ecomponents']
+files_to_backup = ['CONTCAR','POSCAR','out','inputs','opt.log','Ecomponents']
 
 '''
 TODOs:
@@ -1338,12 +1617,12 @@ DONE       4.1. create desorbed calcs (single point?)
 DONE    5. add structure creation
 DONE    6. add molecule running
 DONE    7. add dos options to inputs file
-    8. make interpreter that analyzes all output data
+*    8. make interpreter that analyzes all output data
 DONE    9. setup NEB calcs and manage
     10. Add calculation_info.json (or.txt) to each folder with useful info about
         the calculation setup and initial structure. Update each run. 
     11. setup function that checks whether managed has changed that may cause errors
-    12. setup function to check that different inputs files are compatible
+DONE    12. setup function to check that different inputs files are compatible
 DONE    13. Add ability to combine multiple calcs into one node for job submission efficiency
 *    14. Run DOS SP calcs on converged structures (if user requested)
     15. Make ref_mols a separate file so user can edit
@@ -1351,7 +1630,7 @@ DONE    13. Add ability to combine multiple calcs into one node for job submissi
 *    17. Add NEB building from any two directories (with warnings/errors about structure diffs)
         to enable non-adsorption barriers to be studied
     18. Add back in ability to run two+ adsorbates as a single calculation with "_" separator
-*    19. Add charge density analysis using Aziz script on Summit. Oxi-states available in out file.
+DONE    19. Add charge density analysis using Aziz script on Summit. Oxi-states available in out file.
     
 DONE   FIX ERROR: -r jobs are running with resart False so they keep starting from POSCAR
 

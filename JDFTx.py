@@ -58,6 +58,12 @@ class JDFTx(Calculator):
                         ('dump-name', '$VAR'),
                         ('initial-state', '$VAR')
                 ]
+                # Nick edits
+                self.InitialStateVars = []
+                self.InitCommands = [('wavefunction','read wfns'),('elec-initial-fillings','read fillings'),
+                                     ('elec-initial-eigenvals','eigenvals'),('fluid-initial-state','fluidState'),
+                                     ('kpoint-reduce-inversion','yes')]
+
 
                 # Parse commands, which can be a dict or a list of 2-tuples.
                 if isinstance(commands, dict):
@@ -66,6 +72,15 @@ class JDFTx(Calculator):
                         commands = []
                 for cmd, v in commands:
                         self.addCommand(cmd, v)
+
+                # Nick edits
+                if len(self.InitialStateVars) > 0:
+                        self.input = [self.input[0]] + self.input[2:] # remove default initial-state when not wanted
+                        for icmd in self.InitCommands: 
+                                continue
+                                # add all default tags for standard operation that are not included directly
+                                if icmd[0] not in self.InitialStateVars:
+                                        self.addCommand(icmd[0], icmd[1])
 
                 # Accepted pseudopotential formats
                 self.pseudopotentials = ['fhi', 'uspp', 'upf']
@@ -95,6 +110,12 @@ class JDFTx(Calculator):
         ########### Interface Functions ###########
 
         def addCommand(self, cmd, v):
+                # Nick edits
+                if cmd in ['wavefunction','elec-initial-fillings','elec-initial-Haux','fluid-initial-state','kpoint-reduce-inversion']:
+                        self.input.append((cmd, v))
+                        self.InitialStateVars.append(cmd)
+                        return
+
                 if(not self.validCommand(cmd)):
                         raise IOError('%s is not a valid JDFTx command!\nLook at the input file template (jdftx -t) for a list of commands.' % (cmd))
                 self.input.append((cmd, v))
@@ -197,7 +218,6 @@ class JDFTx(Calculator):
                         #inputfile += '%s %s\n' % (cmd, str(v))
                         vc = v
                         if '\\\\\\n' in v:
-                                #print(v)
                                 vc = '\\\n'.join(v.split('\\\\\\n'))
                                 #vc = ''
                                 #tmp = v.split('\\\n')

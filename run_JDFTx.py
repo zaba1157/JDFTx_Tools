@@ -18,6 +18,26 @@ import argparse
 opj = os.path.join
 ope = os.path.exists
 
+def force_checker(max_force = 500):
+    if 'opt.log' in os.listdir():
+        try:
+            with open('opt.log', 'r') as f:
+                opt_text = f.read()
+        except:
+            print('Unable to read opt.log for force checker.')
+    elif 'neb.log' in os.listdir():
+        try:
+            with open('neb.log', 'r') as f:
+                opt_text = f.read()
+        except:
+            print('Unable to read neb.log for force checker.')
+    else:
+        return
+    if len(opt_text) == 0: return 
+    
+    opt = [line.split() for line in opt_text.split('\n') if line != '' and '*Force-consistent' not in line]
+    force = float(opt[-1][4])
+    assert force < max_force, 'ERROR: Calculation ended due to high forces. Edit Structure.'
 
 def insert_el(filename):
     """
@@ -176,7 +196,7 @@ def initialize_calc(command_file, jdftx_exe):
                         'LBFGS':LBFGS, 'LBFGSLineSearch':LBFGSLineSearch,
                         'GPMin':GPMin, 'MDMin':MDMin, 'FIRE':FIRE}
 
-            dyn = opt_dict[opt](imag_atoms,logfile=logfile)
+            dyn = opt_dict[opt](imag_atoms,logfile=logfile,restart='hessian.pckl')
             return dyn
 
 
@@ -202,6 +222,7 @@ def initialize_calc(command_file, jdftx_exe):
         traj = Trajectory('opt.traj', 'w', atoms, properties=['energy', 'forces'])
         dyn.attach(traj.write, interval=1)
         dyn.attach(write_contcar,interval=1)
+        dyn.attach(force_checker,interval=1)
 
         dyn.run(fmax=fmax,steps=max_steps)
 
@@ -288,6 +309,7 @@ def initialize_calc(command_file, jdftx_exe):
 
             dyn.attach(write_contcar, interval=1, img_dir=img_dir, image=image)
 
+        dyn.attach(force_checker,interval=1)
 
         dyn.run(fmax=fmax,steps=max_steps)
         traj.close()
