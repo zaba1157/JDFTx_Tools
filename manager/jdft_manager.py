@@ -8,6 +8,7 @@ from pymatgen.core.structure import Structure
 import numpy as np
 from adsorbate_helper import save_structures, add_adsorbates, data_analysis, write_parallel, minimum_movement_strs
 
+# TODO: setup so that additional molecules can be run without references (self ref)
 reference_molecules = {'H': {'refs': ['H2'], 'coeffs': [0.5]},
                        'H2': {'refs': ['H2'], 'coeffs': [1]},
 #                       'H2_des': {'refs': ['H2'], 'coeffs': [1]},
@@ -157,12 +158,19 @@ class jdft_manager():
         el_counter = 0
         net_oxidation = 0
         net_mag = 0
+        initial_electrons = None
+        final_electrons = None
         
         if contcar != 'None':
             ct_els = list(set([site['label'] for site in contcar['sites']]))
             ct_counter = {el: 0 for el in ct_els}
         
-        for line in out_text.split('\n'):
+        for li,line in enumerate(out_text.split('\n')):
+            if 'nElectrons' in line and initial_electrons is None:
+                initial_electrons = float(line.split()[1])
+            if 'FillingsUpdate' in line:
+                final_electrons = float(line.split()[4])
+            
             if 'Ionic positions in cartesian coordinates' in line:
                 record_ions = True
                 # reset net oxidation states and magnetization for new group
@@ -243,7 +251,7 @@ class jdft_manager():
 #        print('Site data read')
 #        site_data['net_oxidation'] = net_oxidation
 #        site_data['net_magnetization'] = net_mag
-        return site_data, net_oxidation, net_mag
+        return site_data, net_oxidation, net_mag, final_electrons, initial_electrons
     
     def read_contcar(self, folder):
         st = Structure.from_file(os.path.join(folder, 'CONTCAR'))
@@ -347,8 +355,8 @@ class jdft_manager():
                             ' "make_neb". Default False.',type=str, default='False')
         parser.add_argument('-cf', '--current_force', help='If True, displays calc forces. Default True.',
                             type=str, default='True')
-        parser.add_argument('-t', '--run_time', help='Time to run jobs. Default 48 (hours).',
-                            type=int, default=48)
+        parser.add_argument('-t', '--run_time', help='Time to run jobs. Default 12 (hours).',
+                            type=int, default=12)
         parser.add_argument('-n', '--nodes', help='Nodes per job. Default 1.',
                             type=int, default=1)
         parser.add_argument('-c', '--cores', help='Cores per node.',
@@ -618,14 +626,16 @@ class jdft_manager():
             sites = {}
             net_oxi = 'None'
             net_mag = 'None'
+            nfinal = 'None'
         else:
             sites = out_sites[0]
             net_oxi = out_sites[1]
             net_mag = out_sites[2]
+            nfinal = out_sites[3]
         return {'opt': opt_steps, 'current_force': opt_steps[-1]['force'],
                 'inputs': inputs, 'Ecomponents': ecomp, 
                 'Ecomp_energy': ecomp['F'] if 'F' in ecomp else (ecomp['G'] if 'G' in ecomp else 'None'),
-                'converged': conv, 'contcar': contcar,
+                'converged': conv, 'contcar': contcar, 'nfinal': nfinal,
                 'final_energy': 'None' if not conv else opt_steps[-1]['energy'],
                 'site_data': sites, 'net_oxidation': net_oxi, 'net_magmom': net_mag}
     
@@ -655,11 +665,13 @@ class jdft_manager():
                 sites = {}
                 net_oxi = 'None'
                 net_mag = 'None'
+                nfinal = 'None'
             else:
                 sites = out_sites[0]
                 net_oxi = out_sites[1]
                 net_mag = out_sites[2]
-            images[image_num] = {'contcar': contcar, 'energy': energy, 'Ecomponents': ecomp,
+                nfinal = out_sites[3]
+            images[image_num] = {'contcar': contcar, 'energy': energy, 'Ecomponents': ecomp, 'nfinal': nfinal,
                                  'site_data': sites, 'net_oxidation': net_oxi, 'net_magmom': net_mag}
         return {'opt': opt_steps,
                 'inputs': inputs,
@@ -1052,7 +1064,8 @@ class jdft_manager():
                                 to_folder = os.path.join(neb_dir, image_folder)
                                 if not os.path.exists(to_folder):
                                     os.mkdir(to_folder)
-                                for file in ['CONTCAR', 'wfns', 'fillings', 'fluidState']:
+                                for file in ['CONTCAR', 'wfns', 'fillings', 'fluidState', 'eigenvals',
+                                             'nbound', 'd_tot']:
                                     self.run('cp '+os.path.join(from_folder, file)+' '+
                                              os.path.join(to_folder, file))
                             # copy inputs
@@ -1347,10 +1360,23 @@ class jdft_manager():
     def get_sites(self, line):
         sites = line.split('[')[-1].replace(']','').split(', ')
         for i,s in enumerate(sites):
+            # sites can be a type of site (ie hollow), 'all', 'center', int, element symbol, or (x,y,z) tuple
             try:
                 sites[i] = int(s)
+                continue
             except:
-                sites[i] = s
+                pass
+            if '(' in s and ')' in s:
+                try:
+                    xyz = s.replace(')','').replace('(','').split(',')
+                    xyz = tuple([float(x) for x in xyz])
+                    sites[i] = xyz
+                except:
+                    pass
+            # strings are already treated as themselves in initial split
+#            if s in ['All', 'Hollow', 'Ontop', 'Bridge', 'all', 'hollow', 'ontop', 'bridge', 'center']:
+#                sites[i] = s
+#                continue
         return sites
         
     def check_surface(self, file, dist = 8):

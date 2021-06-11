@@ -19,7 +19,9 @@ import matplotlib as mpl
 mpl.rcdefaults()
 
 hartree_to_ev = 27.2114
-hartree_to_ev = 1
+#hartree_to_ev = 1
+
+use_zero_ref = True
 
 reference_molecules = {'H': {'refs': ['H2'], 'coeffs': [0.5]},
                        'H2': {'refs': ['H2'], 'coeffs': [1]},
@@ -95,14 +97,20 @@ def setup_neb(initial, final, nimages, save_loc, linear = False):
 def place_ads(loc, ads_sts, surface_st, mol, sites_allowed, 
               ads_distance = 2.0, min_dist = 0.5, freeze_depth = 1.8, _z_dir = 2):
     # place adsorbate on all sites within height
-    if loc == 'All':
+    if loc in ['All', 'Hollow', 'Ontop', 'Bridge', 'all', 'hollow', 'ontop', 'bridge']:
         temp_list = []
+        if loc in ['All','all']: sites_to_make = sites_allowed
+        elif loc in ['Hollow','hollow']: sites_to_make = ['hollow']
+        elif loc in ['Bridge','bridge']: sites_to_make = ['bridge']
+        elif loc in ['Ontop','ontop']: sites_to_make = ['ontop']
+        print('WARNING: location '+loc+' has not been checked extensively for errors,'+
+              ' please check structures.')
         for st in ads_sts:
             height = 4
             asf = AdsorbateSiteFinder(st, height = height)
             sites = asf.find_adsorption_sites(distance = ads_distance, 
                                               symm_reduce=0.05, near_reduce=0.05,
-                                              positions = sites_allowed)
+                                              positions = sites_to_make)
             for site in sites['all']:
                 new_st = asf.add_adsorbate(mol, site)
                 if any([any([ np.sqrt(np.sum([(x1.coords[i] - x2.coords[i])**2 for i in range(3)]))
@@ -169,6 +177,27 @@ def place_ads(loc, ads_sts, surface_st, mol, sites_allowed,
                 print('Distance Error in Adsorbate Adding')
                 return []
         return [assign_selective_dynamics(new_st, freeze_depth)]
+    
+    # place ads at a location with (x,y,z) tuple
+    elif type(loc) == tuple and len(loc) == 3:
+        temp_list = []
+        for st in ads_sts:
+            asf = AdsorbateSiteFinder(st)
+            site = np.array([loc[0], loc[1], loc[2]])
+#            print(site)
+            if all([s < 1 for s in site]):
+                # fractional coords were likely given, convert
+#                site = site * st.lattice.abc
+                site = st.lattice.get_cartesian_coords(site)
+#                print(st.lattice.abc)
+#                print(site)
+            new_st = asf.add_adsorbate(mol.copy(), site, reorient = True)
+            if any([any([ np.sqrt(np.sum([(x1.coords[i] - x2.coords[i])**2 for i in range(3)]))
+                             < min_dist for x2 in new_st.sites if x2 != x1]) for x1 in new_st.sites]):
+                    print('Distance Error in Adsorbate Adding: '+str(loc))
+                    continue
+            temp_list.append(assign_selective_dynamics(new_st, freeze_depth))
+        return temp_list
 
 def add_adsorbates(surface_st, adsorbates, ads_distance = 2.0, sites_allowed = ['ontop', 'bridge','hollow'],
                    min_dist = 0.5, freeze_depth = 1.8, molecules_loc = '', z_dir = 2):
@@ -258,13 +287,15 @@ def data_analysis(all_data, ref_mols, __ads_warning_dist = 2.5, verbose = True):
     analysis = {}
     
     if verbose: print('\n----- ANALYSIS -----')
-    skip_surfs= ['Mo6S8_100_h2o']
+    skip_surfs= []#'Mo6S8_100_h2o']
     # get adsorption data
     for surf, sv in all_data.items():
         if surf in skip_surfs:
             continue
         if surf in ref_mols or surf in ['converged']:
             continue # k is a molecule or converged list
+        if 'surf' not in sv:
+            continue
         
         # initialize surface analysis data
         if surf not in analysis:
@@ -312,7 +343,12 @@ def data_analysis(all_data, ref_mols, __ads_warning_dist = 2.5, verbose = True):
                 min_ads = None
                 surf_energy = sv['surf'][bias]['final_energy']
                 surf_data = sv['surf'][bias]
-                ref_energy = np.sum([coef * all_data[ref][bias]['final_energy'] 
+                
+                if use_zero_ref and bias != 'No_bias' and '0.00V' in all_data[ref]:
+                    bias_ref = '0.00V'
+                else:
+                    bias_ref = bias
+                ref_energy = np.sum([coef * all_data[ref][bias_ref]['final_energy'] 
                                     for ref, coef in refs.items()])
                 
                 for config, cv in configs.items():
@@ -331,7 +367,7 @@ def data_analysis(all_data, ref_mols, __ads_warning_dist = 2.5, verbose = True):
                                   "("+bias+") inputs not compatible")
                             continue
                     
-                    ads_en = (cv['final_energy'] - surf_energy - ref_energy) / hartree_to_ev
+                    ads_en = (cv['final_energy'] - surf_energy - ref_energy) * hartree_to_ev # TODO : check
 #                    print('ADS:',surf, mol, bias, ads_en)
                     ads_data = get_ads_data(surf_data, cv)
                     
@@ -538,35 +574,66 @@ def get_ref_mol_dic(mol, reference_molecules):
     return ref_dic
 
 def plot_scaling(analysis, mol1, mol2, width_height = (5,5), bias = 'all'):
+    # scaling relations:
+    # CO2RR
+    #   H vs CO: Ideal E_CO = -0.67, with high E_H to reduce HER (https://doi.org/10.1038/s41586-020-2242-8)
+    #   CO vs CHO: 
+    #       111: CHO = 0.835 * CO + 0.205 (https://doi.org/10.1039/C9SC05236D)
+    #       211: CHO = 0.716 * CO + 0.288
+#    (-1.1, -0.5), (-3.0, -1.86)
+    
     set_rc_params()
     plt.figure(figsize=width_height)
-    colors = ['r','b','g','c','m','y','k']
+    colors = ['r','b','g','c','m','y','tab:red','tab:blue','tab:green']
     index = 0
+    min_e = -1
+    max_e = -1
     for surf, data in analysis.items():
-        if mol1 not in data or mol2 not in data:
+        if 'ads' not in data:
+            continue
+        if mol1 not in data['ads'] or mol2 not in data['ads']:
+            continue
+        if 'Mo6' not in surf:
             continue
         c = colors[index % len(colors)]
         index += 1
-        dt1 = data[mol1]
-        dt2 = data[mol2]
+        dt1 = data['ads'][mol1]
+        dt2 = data['ads'][mol2]
         legend = True
         for bias1 in dt1:
             if bias1 not in dt2:
                 continue
-            if bias is not 'all':
+            if bias != 'all':
                 if type(bias) == str and bias != bias1:
                     continue
                 elif type(bias) == list and bias1 not in bias:
                     continue
             if legend:
+                m = 'D' if 'Mo6' in surf else 'o'
                 plt.plot(dt1[bias1]['ads_energy'], dt2[bias1]['ads_energy'], label = surf,
-                     color = c, marker = 'o')
+                     color = c, marker = m)
                 legend = False
+                if dt1[bias1]['ads_energy'] > max_e:
+                    max_e = dt1[bias1]['ads_energy']
+                elif dt1[bias1]['ads_energy'] < min_e:
+                    min_e = dt1[bias1]['ads_energy']
             else:
-                plt.plot(dt1[bias1]['ads_energy'], dt2[bias1]['ads_energy'], color = c, marker = 'o')
+                m = 'D' if 'Mo6' in surf else 'o'
+                plt.plot(dt1[bias1]['ads_energy'], dt2[bias1]['ads_energy'], color = c, marker = m)
+                if dt1[bias1]['ads_energy'] > max_e:
+                    max_e = dt1[bias1]['ads_energy']
+                elif dt1[bias1]['ads_energy'] < min_e:
+                    min_e = dt1[bias1]['ads_energy']
+    if mol1 == 'CO' and mol2 == 'CHO':
+        plt.plot([-3.0, 1], [-2.3, 1.04], 'k-', label = '111 scaling')
+        plt.plot([-3.0, 1], [-1.86, 1.004], 'r-', label = '211 scaling')
     plt.legend()
-    plt.xlabel(mol1)
-    plt.ylabel(mol2)
+    plt.xlabel('$E_{'+mol1+'}$')
+    plt.ylabel('$E_{'+mol2+'}$')
+    
+#    plt.xlim((min_e * 1.1, max_e * 1.1))
+    plt.xlim((-1.5,0.0))
+    plt.ylim((-1.0,0.5))
     plt.show()
 
 def plot_tafel(analysis, mol, width_height = (5,5)):
@@ -579,8 +646,8 @@ def plot_tafel(analysis, mol, width_height = (5,5)):
     
     index = 0
     for surf, data in analysis.items():
-        if surf not in allowed_surfs:
-            continue
+#        if surf not in allowed_surfs:
+#            continue
         if 'ads' not in data or mol not in data['ads']:
             continue
         c = colors[index % len(colors)]
@@ -598,6 +665,45 @@ def plot_tafel(analysis, mol, width_height = (5,5)):
     plt.ylabel('Ads. Energy (eV)')
     
 #    plt.ylim((-0.5, 1.1))
+    plt.show()
+    
+def plot_charge_scaling(analysis, mol, width_height = (5,5), el = 'Mo'):
+    set_rc_params()
+    mpl.rcParams['legend.frameon'] = True
+    plt.figure(figsize=width_height)
+    colors = ['r','b','g','c','m','y','k','tab:red','tab:blue','tab:green']
+    bias_all = ['No_bias', '0.00V', '-0.25V', '-0.50V']
+    
+    index = 0
+    for surf, data in analysis.items():
+        if 'ads' not in data or mol not in data['ads']:
+            continue
+        c = colors[index % len(colors)]
+        index += 1
+        dt = data['ads'][mol]
+        
+        energy, charge = [], []
+        for bias in bias_all:
+            charge_type = 'net_charge' if el == 'net' else 'el_charge'
+            if bias not in dt or bias not in data['surf'][charge_type]:
+                continue
+            if charge_type == 'el_charge' and el not in data['surf'][charge_type][bias]:
+                continue
+            energy += [dt[bias]['ads_energy']]
+#            charge += [data['surf']['net_charge'][bias] if charge_type == 'net_charge' else (
+#                      data['surf'][charge_type][bias][el])]
+            charge += [dt[bias]['bond_charge_diff']]
+        if len(energy) == 0: continue
+        m = 'D' if 'Mo6' in surf else 'o'
+        plt.plot(charge, energy, color = c, label = surf, ls = '-', marker = m)
+        
+    plt.legend()
+#    plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1.07),
+#               ncol=4, fancybox=True, shadow=True)
+    plt.xlabel('Charge')
+    plt.ylabel('Ads. Energy (eV)')
+    
+#    plt.xlim((0, 5))
     plt.show()
 
 def minimum_movement_strs(init, final, same_threshold = 0.4):
@@ -655,7 +761,7 @@ def minimum_movement_strs(init, final, same_threshold = 0.4):
         print('METAERROR: Not all sites in fnew were assigned from init.')
         return init, final
     print('Inital and Final structures were successfully sorted.')
-    print('**** Inital and Final structures re-written! ****')
+    print('Final structure was re-written to match element order')
     return init, Structure.from_sites(fnew)
 
 
@@ -665,7 +771,7 @@ if __name__ == '__main__':
     data_files = [#'jdft_manager/backup_updates/Eagle/all_data.json',
                   #'jdft_manager/backup_updates/Bridges/all_data.json',
                   #'jdft_manager/backup_updates/Summit/all_data.json',
-                  'all_data.json']
+                  'all_data_scaling.json']
     for file in data_files:
         with open(file,'r') as f:
             add_data = json.load(f)
@@ -674,6 +780,7 @@ if __name__ == '__main__':
     
     analysis = data_analysis(jdft_data, reference_molecules)
     
-#    plot_scaling(analysis, 'H', 'CO', bias = 'all')
+    plot_scaling(analysis, 'CO', 'CHO', bias = 'all')
+#    plot_charge_scaling(analysis, 'H')
 #    plot_tafel(analysis, 'H')
     

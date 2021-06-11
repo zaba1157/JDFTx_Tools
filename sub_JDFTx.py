@@ -21,7 +21,7 @@ try:
 except:
     comp='Eagle'
 
-def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
+def write(nodes,cores,time,out,alloc,qos,script,short_recursive,procs):
     if short_recursive == 'True':
         if time != 4: 
             print('Time limit set to 04:00:00 from short_recursive')
@@ -53,7 +53,7 @@ def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
         writelines+='#SBATCH --partition=debug\n'
     if comp == 'Summit':
         writelines+='#SBATCH --partition shas\n'    
-    writelines+='\nexport JDFTx_NUM_PROCS='+str(np)+'\n'
+    writelines+='\nexport JDFTx_NUM_PROCS='+str(procs)+'\n' # previously np
     if comp == 'Summit':
         writelines+='SLURM_EXPORT_ENV=ALL\n'
 
@@ -74,7 +74,7 @@ def write(nodes,cores,time,out,alloc,qos,script,short_recursive):
         f.write(writelines)
 
 # bridges requires --nodes, -t, --ntasks-per-node, -p
-def write_bridges(nodes,cores,time,out,partition,qos,script,short_recursive):
+def write_bridges(nodes,cores,time,out,partition,qos,script,short_recursive,procs):
     if short_recursive == 'True':
         if time > 4: 
             print('Time limit set to 04:00:00 from short_recursive')
@@ -99,7 +99,7 @@ def write_bridges(nodes,cores,time,out,partition,qos,script,short_recursive):
     if qos=='high':
         writelines+='#SBATCH --qos=high'+'\n'
     
-    writelines+='\nexport JDFTx_NUM_PROCS='+str(np)+'\n'
+    writelines+='\nexport JDFTx_NUM_PROCS='+str(procs)+'\n'
     writelines+='module load '+modules+'\n\n'
 
     if short_recursive == 'True':
@@ -159,7 +159,8 @@ if __name__ == '__main__':
                         type=str, default='False')
     parser.add_argument('-p', '--partition', help='Partition for Bridges2 (RM, RM-shared)',
                         type=str,default='RM-shared')
-
+    parser.add_argument('-m', '--processes', help='Number of JDFT processes, should be <= nstates (see irr. kpoints). '+
+                        'Total cores / processes = threads per process (int for high eff.)', type=int, default=8)
 
     args = parser.parse_args()
     
@@ -174,10 +175,10 @@ if __name__ == '__main__':
     # Multiple write options depending on computer
     if comp == 'Eagle' or comp == 'Summit':
         write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,		
-              script, args.short_recursive)
+              script, args.short_recursive, args.processes)
     elif comp == 'Bridges2':
         write_bridges(args.nodes,args.cores,args.time,outfile,args.partition,args.qos,
-                      script, args.short_recursive)
+                      script, args.short_recursive, args.processes)
     
     os.system('sbatch submit.sh')
     
