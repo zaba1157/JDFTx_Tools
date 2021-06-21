@@ -324,9 +324,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--dir', help='Directory to run in and save files to.',
                         type=str, default='./')
+    parser.add_argument('-g', '--gpu', help='If True, runs GPU install of JDFTx.',
+                        type=str, default='False')
+
+
     args = parser.parse_args()
     if args.dir != './':
         os.chdir(args.dir)
-    
+    if args.gpu == 'True':
+        try:
+            jdftx_exe = os.environ['JDFTx_GPU']
+        except:
+            print('Environment variable "JDFTx_GPU" not found, running standard JDFTx.')
+
     command_file = 'inputs'
     initialize_calc(command_file, jdftx_exe)

@@ -21,7 +21,7 @@ try:
 except:
     comp='Eagle'
 
-def write(nodes,cores,time,out,alloc,qos,script,short_recursive,procs):
+def write(nodes,cores,time,out,alloc,qos,script,short_recursive,procs,gpu):
     if short_recursive == 'True':
         if time != 4: 
             print('Time limit set to 04:00:00 from short_recursive')
@@ -52,7 +52,10 @@ def write(nodes,cores,time,out,alloc,qos,script,short_recursive,procs):
     if time == 1 and comp == 'Eagle':
         writelines+='#SBATCH --partition=debug\n'
     if comp == 'Summit':
-        writelines+='#SBATCH --partition shas\n'    
+        if gpu == 'True':
+            writelines+='#SBATCH --partition sgpu\n'
+        else:
+            writelines+='#SBATCH --partition shas\n'    
     writelines+='\nexport JDFTx_NUM_PROCS='+str(procs)+'\n' # previously np
     if comp == 'Summit':
         writelines+='SLURM_EXPORT_ENV=ALL\n'
@@ -63,11 +66,17 @@ def write(nodes,cores,time,out,alloc,qos,script,short_recursive,procs):
     if short_recursive == 'True':
         # short_recursive command runs timer script before and after JDFT to check if walltime is hit
         writelines+='timeout 10 python /home/nicksingstock/bin/JDFTx_Tools/timer.py > timer'+'\n'
-        writelines+='timeout 14300 ' + 'python '+script+' > '+out+'\n'
+        if gpu == 'True':
+            writelines+='timeout 14300 ' + 'python '+script+' -g True > '+out+'\n'
+        else:
+            writelines+='timeout 14300 ' + 'python '+script+' > '+out+'\n'
         writelines+='timeout 10 python /home/nicksingstock/bin/JDFTx_Tools/timer.py > timer'+'\n'
 
     else:
-        writelines+='python '+script+' > '+out+'\n'
+        if gpu == 'True':
+            writelines+='python '+script+' -g True > '+out+'\n'
+        else:
+            writelines+='python '+script+' > '+out+'\n'
     writelines+='exit 0'+'\n'
 
     with open('submit.sh','w') as f:
@@ -161,8 +170,11 @@ if __name__ == '__main__':
                         type=str,default='RM-shared')
     parser.add_argument('-m', '--processes', help='Number of JDFT processes, should be <= nstates (see irr. kpoints). '+
                         'Total cores / processes = threads per process (int for high eff.)', type=int, default=8)
+    parser.add_argument('-g', '--gpu', help='If True, runs GPU install of JDFTx',
+                        type=str, default='False')
 
     args = parser.parse_args()
+    #print(args.gpu, type(args.gpu))
     
     if args.short_recursive == 'True':
         recursive_restart()
@@ -175,7 +187,7 @@ if __name__ == '__main__':
     # Multiple write options depending on computer
     if comp == 'Eagle' or comp == 'Summit':
         write(args.nodes,args.cores,args.time,args.outfile,args.allocation,args.qos,		
-              script, args.short_recursive, args.processes)
+              script, args.short_recursive, args.processes, args.gpu)
     elif comp == 'Bridges2':
         write_bridges(args.nodes,args.cores,args.time,outfile,args.partition,args.qos,
                       script, args.short_recursive, args.processes)
